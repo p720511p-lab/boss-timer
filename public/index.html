@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>首領重生即時倒數看板</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #121212; color: #f0f0f0; padding: 16px; max-width: 680px; margin: auto; }
+    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 12px; margin-bottom: 16px; }
+    h2 { margin: 0; font-size: 20px; }
+    .badge { padding: 6px 14px; border-radius: 20px; font-weight: bold; font-size: 13px; }
+    .badge-normal { background: #2e7d32; color: #fff; }
+    .badge-half { background: #d84315; color: #fff; }
+    .card { background: #1e1e1e; margin-bottom: 10px; padding: 14px 16px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #4fc3f7; }
+    .card.fixed { border-left-color: #ffb74d; }
+    .card.soon { border-left-color: #ff5252; background: #2a1818; }
+    .name-row { display: flex; align-items: center; gap: 8px; }
+    .boss-name { font-size: 17px; font-weight: bold; }
+    .miss-tag { background: #424242; color: #ffcc80; font-size: 12px; padding: 2px 6px; border-radius: 4px; }
+    .fixed-tag { background: #5d4037; color: #ffe082; font-size: 12px; padding: 2px 6px; border-radius: 4px; }
+    .sub-info { font-size: 13px; color: #aaa; margin-top: 4px; }
+    .countdown { font-size: 20px; font-weight: bold; font-variant-numeric: tabular-nums; color: #4fc3f7; }
+    .soon .countdown { color: #ff5252; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h2>⚔️ 首領重生即時看板</h2>
+    <span id="modeBadge" class="badge badge-normal">載入中...</span>
+  </div>
+  <div id="board">載入資料中...</div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getFirestore, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyB-OH0xoozWSNy8z69KVrjNptBJYp7mOjU",
+      authDomain: "fir-188fc.firebaseapp.com",
+      projectId: "fir-188fc",
+      storageBucket: "fir-188fc.firebasestorage.app",
+      messagingSenderId: "867001169940",
+      appId: "1:867001169940:web:169eee613108d0aeab8f01"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const BOSS_INTERVALS = {
+      '野豬': [240, 120], '夫人': [240, 120], '飛龍3': [240, 120], '飛龍4': [240, 120],
+      '卡王': [240, 120], '大腳': [240, 120], '黑虎': [240, 120], '海賊': [240, 120],
+      '茉莉': [240, 120], '奧杜亞': [240, 120], '飛龍1': [240, 120], '飛龍2': [240, 120],
+      '殺戮者': [240, 120], '麥肯': [240, 120], '蜥蜴': [240, 120], '巨人': [720, 360],
+      '奈克': [480, 240], '烏勒': [480, 240], '库約': [240, 120], '蛇女': [480, 240],
+      '狼王': [480, 240], '四色': [720, 720], '頭目': [480, 240], '克洛林': [480, 480],
+      '鱷魚': [480, 240]
+    };
+
+    const FIXED_SCHEDULE = {
+      0: [{ h: 18, m: 0, n: ['克特', '阿勒尼亞'] }, { h: 18, m: 15, n: ['巫師', '變怪'] }, { h: 18, m: 30, n: ['卡爾圖蘭(大花草)'] }],
+      1: [{ h: 18, m: 0, n: ['克特', '阿勒尼亞'] }, { h: 18, m: 15, n: ['巫師', '變怪'] }, { h: 18, m: 30, n: ['死亡(炎魔五樓)', '巨蟻女王'] }],
+      2: [{ h: 18, m: 0, n: ['克特', '阿勒尼亞'] }, { h: 18, m: 15, n: ['巫師', '變怪'] }, { h: 18, m: 30, n: ['古拉(火焰五樓)', '巨蟻女王'] }],
+      3: [{ h: 18, m: 0, n: ['克特', '阿勒尼亞'] }, { h: 18, m: 15, n: ['巫師', '變怪'] }, { h: 18, m: 30, n: ['死亡(炎魔)', '巨蟻女王'] }],
+      4: [{ h: 18, m: 0, n: ['克特', '阿勒尼亞'] }, { h: 18, m: 15, n: ['巫師', '變怪'] }, { h: 18, m: 30, n: ['古拉(火焰五樓)', '巨蟻女王'] }],
+      5: [{ h: 18, m: 0, n: ['克特', '阿勒尼亞'] }, { h: 18, m: 15, n: ['巫師', '變怪'] }, { h: 18, m: 30, n: ['墮落(火焰八樓)', '巨蟻女王'] }],
+      6: [{ h: 18, m: 0, n: ['克特', '阿勒尼亞'] }, { h: 18, m: 15, n: ['巫師', '變怪'] }, { h: 18, m: 30, n: ['惡魔(炎魔八樓)', '巨蟻女王'] }]
+    };
+
+    const groupId = new URLSearchParams(window.location.search).get('group');
+    let groupData = null;
+
+    if (!groupId) {
+      document.getElementById('board').innerHTML = '<p>請在 LINE 群組輸入「網頁」取得專屬看板連結。</p>';
+    } else {
+      onSnapshot(doc(db, 'groups', groupId), (snap) => {
+        if (snap.exists()) {
+          groupData = snap.data();
+          render();
+        } else {
+          document.getElementById('board').innerHTML = '<p>尚未初始化王表，請在 LINE 群組輸入 RE。</p>';
+        }
+      });
+    }
+
+    setInterval(render, 1000);
+
+    function render() {
+      if (!groupData) return;
+      const now = Date.now();
+      const isHalf = Boolean(groupData.isHalfEvent);
+
+      const badge = document.getElementById('modeBadge');
+      badge.className = isHalf ? 'badge badge-half' : 'badge badge-normal';
+      badge.textContent = isHalf ? '🔥 時間減半中' : '🛡️ 正常重生';
+
+      const list = [];
+      const bosses = groupData.bosses || {};
+
+      for (const [name, info] of Object.entries(bosses)) {
+        if (!info.nextSpawn) continue;
+        let nextSpawn = info.nextSpawn;
+        let miss = info.missCount || 0;
+
+        if (nextSpawn <= now && BOSS_INTERVALS[name]) {
+          const intervalMs = (isHalf ? BOSS_INTERVALS[name][1] : BOSS_INTERVALS[name][0]) * 60000;
+          const missed = Math.floor((now - nextSpawn) / intervalMs) + 1;
+          nextSpawn += missed * intervalMs;
+          miss += missed;
+        }
+        list.push({ name, time: nextSpawn, miss, isFixed: false });
+      }
+
+      // 加入未來 24 小時固定王
+      const twOffset = 8 * 3600000;
+      const twNow = new Date(now + twOffset);
+      for (let d = 0; d <= 1; d++) {
+        const dt = new Date(Date.UTC(twNow.getUTCFullYear(), twNow.getUTCMonth(), twNow.getUTCDate() + d));
+        for (const slot of (FIXED_SCHEDULE[dt.getUTCDay()] || [])) {
+          const ts = Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate(), slot.h, slot.m, 0) - twOffset;
+          if (ts > now && ts <= now + 86400000) {
+            slot.n.forEach(n => list.push({ name: n, time: ts, miss: 0, isFixed: true }));
+          }
+        }
+      }
+
+      list.sort((a, b) => a.time - b.time);
+
+      document.getElementById('board').innerHTML = list.map(item => {
+        const diff = item.time - now;
+        const isSoon = diff <= 10 * 60000;
+        const h = String(Math.floor(diff / 3600000)).padStart(2, '0');
+        const m = String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0');
+        const s = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
+
+        const d = new Date(item.time + twOffset);
+        const timeStr = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+
+        const tagHtml = item.isFixed
+          ? '<span class="fixed-tag">固定時間</span>'
+          : (item.miss > 0 ? `<span class="miss-tag">未登 ${item.miss} 次</span>` : '');
+
+        return `
+          <div class="card ${item.isFixed ? 'fixed' : ''} ${isSoon ? 'soon' : ''}">
+            <div>
+              <div class="name-row">
+                <span class="boss-name">${item.name}${!item.isFixed && item.miss > 0 ? `(${item.miss})` : ''}</span>
+                ${tagHtml}
+              </div>
+              <div class="sub-info">預計重生：${timeStr}</div>
+            </div>
+            <div class="countdown">${h}:${m}:${s}</div>
+          </div>`;
+      }).join('');
+    }
+  </script>
+</body>
+</html>
