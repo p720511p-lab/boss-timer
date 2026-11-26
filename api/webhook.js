@@ -234,7 +234,7 @@ async function handleEvent(event, webUrl) {
     await docRef.update({ bosses });
   }
 
-  // 5. KB 查詢首領重生時間 (淺色系卡片 + 自動純文字備援)
+  // 5. KB 查詢首領重生時間 (暗黑科技感卡片 + 自動純文字備援)
   if (upperText === 'KB') {
     const timeline = [];
 
@@ -286,7 +286,7 @@ async function handleEvent(event, webUrl) {
   return null;
 }
 
-// 建立淺色系 LINE Flex Message 美化王表卡片
+// 建立暗黑科技感 LINE Flex Message 美化王表卡片
 function buildKbFlexMessage(timeline, isHalf, now, dashboardUrl) {
   const rows = timeline.map((item) => {
     const diffMin = Math.ceil((item.time - now) / 60000);
@@ -294,14 +294,18 @@ function buildKbFlexMessage(timeline, isHalf, now, dashboardUrl) {
     const remainStr =
       diffMin >= 60 ? `${Math.floor(diffMin / 60)}時${diffMin % 60}分` : `${diffMin}分`;
 
-    let rowBg = '#EFF6FF';
-    let timeColor = '#1D4ED8';
+    // 暗黑科技感配色：固定王(賽博琥珀金 #241B0D)、10分內即將重生(雷射紅警報 #2B1117)、動態王(深海電光藍 #0F1B2E)
+    let rowBg = '#0F1B2E';
+    let borderCol = '#1E3A5F';
+    let timeColor = '#00E5FF';
     if (item.isFixed) {
-      rowBg = '#FFFBEB';
-      timeColor = '#B45309';
+      rowBg = '#241B0D';
+      borderCol = '#5C4318';
+      timeColor = '#FFAB00';
     } else if (isSoon) {
-      rowBg = '#FEF2F2';
-      timeColor = '#DC2626';
+      rowBg = '#2B1117';
+      borderCol = '#7A1C2E';
+      timeColor = '#FF3D57';
     }
 
     const labelText = item.isFixed
@@ -314,6 +318,8 @@ function buildKbFlexMessage(timeline, isHalf, now, dashboardUrl) {
       type: 'box',
       layout: 'horizontal',
       backgroundColor: rowBg,
+      borderColor: borderCol,
+      borderWidth: '1px',
       cornerRadius: '6px',
       paddingAll: '7px',
       contents: [
@@ -328,7 +334,7 @@ function buildKbFlexMessage(timeline, isHalf, now, dashboardUrl) {
         {
           type: 'text',
           text: labelText,
-          color: '#1F2937',
+          color: '#E2E8F0',
           size: 'xs',
           weight: 'bold',
           flex: 5,
@@ -336,7 +342,7 @@ function buildKbFlexMessage(timeline, isHalf, now, dashboardUrl) {
         {
           type: 'text',
           text: remainStr,
-          color: isSoon ? '#DC2626' : '#4B5563',
+          color: isSoon ? '#FF6B81' : '#7DD3FC',
           size: 'xs',
           weight: isSoon ? 'bold' : 'regular',
           align: 'end',
@@ -348,14 +354,14 @@ function buildKbFlexMessage(timeline, isHalf, now, dashboardUrl) {
 
   return {
     type: 'flex',
-    altText: isHalf ? '🔥 首領重生時間表 (時間減半中)' : '🛡️ 首領重生時間表 (正常重生)',
+    altText: isHalf ? '🔥 首領重生時間表 (時間減半中)' : '⚡ 首領重生時間表 (正常重生)',
     contents: {
       type: 'bubble',
       size: 'giga',
       styles: {
-        header: { backgroundColor: '#FFFFFF' },
-        body: { backgroundColor: '#FFFFFF' },
-        footer: { backgroundColor: '#FFFFFF' },
+        header: { backgroundColor: '#090D16' },
+        body: { backgroundColor: '#090D16' },
+        footer: { backgroundColor: '#090D16' },
       },
       header: {
         type: 'box',
@@ -365,8 +371,8 @@ function buildKbFlexMessage(timeline, isHalf, now, dashboardUrl) {
         contents: [
           {
             type: 'text',
-            text: isHalf ? '🔥 首領重生表 (減半中)' : '🛡️ 首領重生表 (正常)',
-            color: isHalf ? '#C2410C' : '#111827',
+            text: isHalf ? '🔥 BOSS RADAR // 減半中' : '⚡ BOSS RADAR // 正常重生',
+            color: isHalf ? '#FF7043' : '#38BDF8',
             weight: 'bold',
             size: 'sm',
             flex: 1,
@@ -390,11 +396,11 @@ function buildKbFlexMessage(timeline, isHalf, now, dashboardUrl) {
           {
             type: 'button',
             style: 'primary',
-            color: '#2563EB',
+            color: '#0284C7',
             height: 'sm',
             action: {
               type: 'uri',
-              label: '📊 開啟即時倒數網頁看板',
+              label: '📡 開啟即時監控網頁看板',
               uri: dashboardUrl,
             },
           },
