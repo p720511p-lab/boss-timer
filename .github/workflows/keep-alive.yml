@@ -2,6 +2,7 @@ name: Keep Vercel Alive
 on:
   schedule:
     - cron: '*/4 * * * *'
+  workflow_dispatch:
 jobs:
   ping:
     runs-on: ubuntu-latest
