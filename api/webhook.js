@@ -225,11 +225,10 @@ async function handleEvent(event, webUrl) {
     );
   }
 
-  // 5. KB 查詢首領重生時間 (Flex Message 卡片美化版)
+  // 5. KB 查詢首領重生時間 (雙色美編卡片 + 自動純文字備援)
   if (upperText === 'KB') {
     const timeline = [];
 
-    // 加入動態首領
     for (const cfg of BOSS_CONFIGS) {
       const info = bosses[cfg.name];
       if (!info || !info.nextSpawn) continue;
@@ -241,7 +240,6 @@ async function handleEvent(event, webUrl) {
       });
     }
 
-    // 加入未來 24 小時內的固定時間王
     const upcomingFixed = getUpcomingFixedBosses(now);
     for (const item of upcomingFixed) {
       timeline.push({
@@ -252,93 +250,80 @@ async function handleEvent(event, webUrl) {
       });
     }
 
-    // 依時間先後排序
     timeline.sort((a, b) => a.time - b.time);
 
-    const flexMessage = buildKbFlexMessage(timeline, isHalf, now, `${webUrl}/?group=${groupId}`);
-    return client.replyMessage({
-      replyToken: event.replyToken,
-      messages: [flexMessage],
-    });
+    const dashboardUrl = `${webUrl}/?group=${groupId}`;
+    const flexMessage = buildKbFlexMessage(timeline, isHalf, now, dashboardUrl);
+
+    try {
+      return await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [flexMessage],
+      });
+    } catch (err) {
+      console.error('Flex error, fallback to text:', err);
+      const modeHeader = isHalf ? '🔥【目前模式：時間減半】' : '🛡️【目前模式：正常重生】';
+      const lines = timeline.map((item) => {
+        const diffMin = Math.ceil((item.time - now) / 60000);
+        const remainStr =
+          diffMin >= 60 ? `剩 ${Math.floor(diffMin / 60)}時${diffMin % 60}分` : `剩 ${diffMin}分`;
+        const tag = item.isFixed ? '[固定]' : item.miss > 0 ? `(${item.miss})` : '';
+        return `${formatTime(item.time)} ${item.name}${tag} (${remainStr})`;
+      });
+      return replyText(event.replyToken, `${modeHeader}\n\n${lines.join('\n')}\n\n📊 看板：${dashboardUrl}`);
+    }
   }
 
   return null;
 }
 
-// 建立區分底色的 LINE Flex Message 美化王表卡片
+// 建立 100% 符合 LINE 規範的雙色底色區分卡片
 function buildKbFlexMessage(timeline, isHalf, now, dashboardUrl) {
   const rows = timeline.map((item) => {
     const diffMin = Math.ceil((item.time - now) / 60000);
     const isSoon = diffMin <= 10;
     const remainStr =
-      diffMin >= 60 ? `剩 ${Math.floor(diffMin / 60)}時${diffMin % 60}分` : `剩 ${diffMin}分`;
+      diffMin >= 60 ? `${Math.floor(diffMin / 60)}時${diffMin % 60}分` : `${diffMin}分`;
 
-    // 底色與強調色區分：固定王(暖金棕底)、10分內即將重生(暗紅警示底)、一般動態王(深藍灰底)
-    let rowBg = '#1E242B';
-    let accentColor = '#4FC3F7';
+    // 底色區分：固定王(暖金棕 #332712)、10分內即將重生(暗紅 #3D1A1A)、動態王(深藍灰 #1D252E)
+    let rowBg = '#1D252E';
+    let timeColor = '#4FC3F7';
     if (item.isFixed) {
-      rowBg = '#2E2414';
-      accentColor = '#FFB74D';
+      rowBg = '#332712';
+      timeColor = '#FFB74D';
     } else if (isSoon) {
-      rowBg = '#3A1818';
-      accentColor = '#FF5252';
+      rowBg = '#3D1A1A';
+      timeColor = '#FF5252';
     }
 
-    const nameRowContents = [
-      {
-        type: 'text',
-        text: item.name,
-        color: '#FFFFFF',
-        size: 'sm',
-        weight: 'bold',
-        flex: 0,
-      },
-    ];
-
-    if (item.isFixed) {
-      nameRowContents.push({
-        type: 'text',
-        text: ' 固定',
-        color: '#FFB74D',
-        size: 'xxs',
-        weight: 'bold',
-        flex: 0,
-      });
-    } else if (item.miss > 0) {
-      nameRowContents.push({
-        type: 'text',
-        text: ` 未登${item.miss}`,
-        color: '#FFCC80',
-        size: 'xxs',
-        flex: 0,
-      });
-    }
+    const labelText = item.isFixed
+      ? `${item.name} [固定]`
+      : item.miss > 0
+      ? `${item.name} (未登${item.miss})`
+      : item.name;
 
     return {
       type: 'box',
       layout: 'horizontal',
       backgroundColor: rowBg,
-      cornerRadius: '6px',
-      paddingAll: '8px',
-      paddingStart: '10px',
-      paddingEnd: '10px',
-      alignItems: 'center',
+      cornerRadius: '4px',
+      paddingAll: '6px',
       contents: [
         {
           type: 'text',
           text: formatTime(item.time),
-          color: accentColor,
-          size: 'sm',
+          color: timeColor,
+          size: 'xs',
           weight: 'bold',
-          width: '46px',
-          flex: 0,
+          flex: 2,
         },
         {
-          type: 'box',
-          layout: 'horizontal',
-          flex: 1,
-          alignItems: 'center',
-          contents: nameRowContents,
+          type: 'text',
+          text: labelText,
+          color: '#FFFFFF',
+          size: 'xs',
+          weight: 'bold',
+          flex: 5,
         },
         {
           type: 'text',
@@ -346,7 +331,7 @@ function buildKbFlexMessage(timeline, isHalf, now, dashboardUrl) {
           color: isSoon ? '#FF8A80' : '#B0BEC5',
           size: 'xs',
           align: 'end',
-          flex: 0,
+          flex: 3,
         },
       ],
     };
@@ -366,37 +351,15 @@ function buildKbFlexMessage(timeline, isHalf, now, dashboardUrl) {
       header: {
         type: 'box',
         layout: 'horizontal',
-        paddingAll: '14px',
-        paddingBottom: '8px',
-        alignItems: 'center',
+        paddingAll: '12px',
         contents: [
           {
             type: 'text',
-            text: '⚔️ 首領重生時間表',
+            text: isHalf ? '🔥 首領重生表 (減半中)' : '🛡️ 首領重生表 (正常)',
             color: '#FFFFFF',
             weight: 'bold',
-            size: 'md',
+            size: 'sm',
             flex: 1,
-          },
-          {
-            type: 'box',
-            layout: 'vertical',
-            backgroundColor: isHalf ? '#D84315' : '#2E7D32',
-            cornerRadius: '12px',
-            paddingStart: '10px',
-            paddingEnd: '10px',
-            paddingTop: '4px',
-            paddingBottom: '4px',
-            flex: 0,
-            contents: [
-              {
-                type: 'text',
-                text: isHalf ? '🔥 減半中' : '🛡️ 正常',
-                color: '#FFFFFF',
-                size: 'xxs',
-                weight: 'bold',
-              },
-            ],
           },
         ],
       },
@@ -404,24 +367,13 @@ function buildKbFlexMessage(timeline, isHalf, now, dashboardUrl) {
         type: 'box',
         layout: 'vertical',
         spacing: 'xs',
-        paddingAll: '12px',
-        paddingTop: '4px',
-        contents: [
-          {
-            type: 'text',
-            text: '🔵 動態王  🟡 固定時間王  🔴 10分內重生',
-            color: '#888888',
-            size: 'xxs',
-            margin: 'none',
-          },
-          ...rows,
-        ],
+        paddingAll: '10px',
+        contents: rows,
       },
       footer: {
         type: 'box',
         layout: 'vertical',
-        paddingAll: '12px',
-        paddingTop: '4px',
+        paddingAll: '10px',
         contents: [
           {
             type: 'button',
