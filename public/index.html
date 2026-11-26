@@ -3,32 +3,117 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>首領重生即時倒數看板</title>
+  <title>首領重生即時監控看板</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #121212; color: #f0f0f0; padding: 16px; max-width: 680px; margin: auto; }
-    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 12px; margin-bottom: 16px; }
-    h2 { margin: 0; font-size: 20px; }
-    .badge { padding: 6px 14px; border-radius: 20px; font-weight: bold; font-size: 13px; }
-    .badge-normal { background: #2e7d32; color: #fff; }
-    .badge-half { background: #d84315; color: #fff; }
-    .card { background: #1e1e1e; margin-bottom: 10px; padding: 14px 16px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #4fc3f7; }
-    .card.fixed { border-left-color: #ffb74d; }
-    .card.soon { border-left-color: #ff5252; background: #2a1818; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #090d16;
+      background-image: radial-gradient(circle at 50% 0%, #132238 0%, #090d16 70%);
+      color: #e2e8f0;
+      padding: 16px;
+      max-width: 680px;
+      margin: auto;
+      min-height: 100vh;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #1e293b;
+      padding-bottom: 14px;
+      margin-bottom: 18px;
+    }
+    h2 {
+      margin: 0;
+      font-size: 19px;
+      letter-spacing: 0.5px;
+      color: #38bdf8;
+      text-shadow: 0 0 12px rgba(56, 189, 248, 0.35);
+    }
+    .badge {
+      padding: 5px 14px;
+      border-radius: 20px;
+      font-weight: bold;
+      font-size: 12px;
+      letter-spacing: 0.5px;
+    }
+    .badge-normal {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(52, 211, 153, 0.4);
+      box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+    }
+    .badge-half {
+      background: rgba(249, 115, 22, 0.15);
+      color: #fb923c;
+      border: 1px solid rgba(251, 146, 60, 0.45);
+      box-shadow: 0 0 10px rgba(249, 115, 22, 0.25);
+    }
+    .card {
+      background: linear-gradient(90deg, #0f1b2e 0%, #111827 100%);
+      margin-bottom: 10px;
+      padding: 13px 16px;
+      border-radius: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border: 1px solid #1e3a5f;
+      border-left: 4px solid #00e5ff;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    }
+    .card.fixed {
+      background: linear-gradient(90deg, #241b0d 0%, #171412 100%);
+      border-color: #5c4318;
+      border-left-color: #ffab00;
+    }
+    .card.soon {
+      background: linear-gradient(90deg, #2b1117 0%, #1a1014 100%);
+      border-color: #7a1c2e;
+      border-left-color: #ff3d57;
+      box-shadow: 0 0 15px rgba(255, 61, 87, 0.2);
+    }
     .name-row { display: flex; align-items: center; gap: 8px; }
-    .boss-name { font-size: 17px; font-weight: bold; }
-    .miss-tag { background: #424242; color: #ffcc80; font-size: 12px; padding: 2px 6px; border-radius: 4px; }
-    .fixed-tag { background: #5d4037; color: #ffe082; font-size: 12px; padding: 2px 6px; border-radius: 4px; }
-    .sub-info { font-size: 13px; color: #aaa; margin-top: 4px; }
-    .countdown { font-size: 20px; font-weight: bold; font-variant-numeric: tabular-nums; color: #4fc3f7; }
-    .soon .countdown { color: #ff5252; }
+    .boss-name { font-size: 16px; font-weight: bold; color: #f8fafc; }
+    .miss-tag {
+      background: rgba(245, 158, 11, 0.15);
+      color: #fbbf24;
+      border: 1px solid rgba(251, 191, 36, 0.35);
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 4px;
+    }
+    .fixed-tag {
+      background: rgba(255, 171, 0, 0.15);
+      color: #ffab00;
+      border: 1px solid rgba(255, 171, 0, 0.35);
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 4px;
+    }
+    .sub-info { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+    .countdown {
+      font-size: 20px;
+      font-weight: bold;
+      font-variant-numeric: tabular-nums;
+      color: #00e5ff;
+      text-shadow: 0 0 10px rgba(0, 229, 255, 0.3);
+    }
+    .fixed .countdown {
+      color: #ffab00;
+      text-shadow: 0 0 10px rgba(255, 171, 0, 0.25);
+    }
+    .soon .countdown {
+      color: #ff3d57;
+      text-shadow: 0 0 12px rgba(255, 61, 87, 0.45);
+    }
   </style>
 </head>
 <body>
   <div class="header">
-    <h2>⚔️ 首領重生即時看板</h2>
-    <span id="modeBadge" class="badge badge-normal">載入中...</span>
+    <h2>⚡ BOSS RADAR // 即時監控</h2>
+    <span id="modeBadge" class="badge badge-normal">連線中...</span>
   </div>
-  <div id="board">載入資料中...</div>
+  <div id="board">同步資料中...</div>
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
@@ -110,7 +195,6 @@
         list.push({ name, time: nextSpawn, miss, isFixed: false });
       }
 
-      // 加入未來 24 小時固定王
       const twOffset = 8 * 3600000;
       const twNow = new Date(now + twOffset);
       for (let d = 0; d <= 1; d++) {
