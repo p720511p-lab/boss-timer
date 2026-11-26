@@ -159,7 +159,6 @@ async function handleEvent(event, webUrl) {
 
   const docSnap = await docRef.get();
   if (!docSnap.exists) {
-    // 只有輸入相關指令時才提示需先 RE，避免干擾一般聊天
     if (
       upperText === 'KB' ||
       text === '時間減半' ||
@@ -226,20 +225,18 @@ async function handleEvent(event, webUrl) {
     );
   }
 
-  // 5. KB 查詢首領重生時間
+  // 5. KB 查詢首領重生時間 (Flex Message 卡片美化版)
   if (upperText === 'KB') {
-    const modeHeader = isHalf ? '🔥【目前模式：時間減半】' : '🛡️【目前模式：正常重生】';
     const timeline = [];
 
     // 加入動態首領
     for (const cfg of BOSS_CONFIGS) {
       const info = bosses[cfg.name];
       if (!info || !info.nextSpawn) continue;
-      const miss = info.missCount || 0;
-      const displayName = miss > 0 ? `${cfg.name}(${miss})` : cfg.name;
       timeline.push({
         time: info.nextSpawn,
-        name: displayName,
+        name: cfg.name,
+        miss: info.missCount || 0,
         isFixed: false,
       });
     }
@@ -249,7 +246,8 @@ async function handleEvent(event, webUrl) {
     for (const item of upcomingFixed) {
       timeline.push({
         time: item.time,
-        name: `${item.name}[固定]`,
+        name: item.name,
+        miss: 0,
         isFixed: true,
       });
     }
@@ -257,19 +255,189 @@ async function handleEvent(event, webUrl) {
     // 依時間先後排序
     timeline.sort((a, b) => a.time - b.time);
 
-    const lines = timeline.map((item) => {
-      const diffMin = Math.ceil((item.time - now) / 60000);
-      const remainStr = diffMin >= 60
-        ? `剩 ${Math.floor(diffMin / 60)}時${diffMin % 60}分`
-        : `剩 ${diffMin}分`;
-      return `${formatTime(item.time)} ${item.name} (${remainStr})`;
+    const flexMessage = buildKbFlexMessage(timeline, isHalf, now, `${webUrl}/?group=${groupId}`);
+    return client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [flexMessage],
     });
-
-    const replyMsg = `${modeHeader}\n\n${lines.join('\n')}\n\n📊 看板：${webUrl}/?group=${groupId}`;
-    return replyText(event.replyToken, replyMsg);
   }
 
   return null;
+}
+
+// 建立區分底色的 LINE Flex Message 美化王表卡片
+function buildKbFlexMessage(timeline, isHalf, now, dashboardUrl) {
+  const rows = timeline.map((item) => {
+    const diffMin = Math.ceil((item.time - now) / 60000);
+    const isSoon = diffMin <= 10;
+    const remainStr =
+      diffMin >= 60 ? `剩 ${Math.floor(diffMin / 60)}時${diffMin % 60}分` : `剩 ${diffMin}分`;
+
+    // 底色與強調色區分：固定王(暖金棕底)、10分內即將重生(暗紅警示底)、一般動態王(深藍灰底)
+    let rowBg = '#1E242B';
+    let accentColor = '#4FC3F7';
+    if (item.isFixed) {
+      rowBg = '#2E2414';
+      accentColor = '#FFB74D';
+    } else if (isSoon) {
+      rowBg = '#3A1818';
+      accentColor = '#FF5252';
+    }
+
+    const nameRowContents = [
+      {
+        type: 'text',
+        text: item.name,
+        color: '#FFFFFF',
+        size: 'sm',
+        weight: 'bold',
+        flex: 0,
+      },
+    ];
+
+    if (item.isFixed) {
+      nameRowContents.push({
+        type: 'text',
+        text: ' 固定',
+        color: '#FFB74D',
+        size: 'xxs',
+        weight: 'bold',
+        flex: 0,
+      });
+    } else if (item.miss > 0) {
+      nameRowContents.push({
+        type: 'text',
+        text: ` 未登${item.miss}`,
+        color: '#FFCC80',
+        size: 'xxs',
+        flex: 0,
+      });
+    }
+
+    return {
+      type: 'box',
+      layout: 'horizontal',
+      backgroundColor: rowBg,
+      cornerRadius: '6px',
+      paddingAll: '8px',
+      paddingStart: '10px',
+      paddingEnd: '10px',
+      alignItems: 'center',
+      contents: [
+        {
+          type: 'text',
+          text: formatTime(item.time),
+          color: accentColor,
+          size: 'sm',
+          weight: 'bold',
+          width: '46px',
+          flex: 0,
+        },
+        {
+          type: 'box',
+          layout: 'horizontal',
+          flex: 1,
+          alignItems: 'center',
+          contents: nameRowContents,
+        },
+        {
+          type: 'text',
+          text: remainStr,
+          color: isSoon ? '#FF8A80' : '#B0BEC5',
+          size: 'xs',
+          align: 'end',
+          flex: 0,
+        },
+      ],
+    };
+  });
+
+  return {
+    type: 'flex',
+    altText: isHalf ? '🔥 首領重生時間表 (時間減半中)' : '🛡️ 首領重生時間表 (正常重生)',
+    contents: {
+      type: 'bubble',
+      size: 'giga',
+      styles: {
+        header: { backgroundColor: '#121212' },
+        body: { backgroundColor: '#121212' },
+        footer: { backgroundColor: '#121212' },
+      },
+      header: {
+        type: 'box',
+        layout: 'horizontal',
+        paddingAll: '14px',
+        paddingBottom: '8px',
+        alignItems: 'center',
+        contents: [
+          {
+            type: 'text',
+            text: '⚔️ 首領重生時間表',
+            color: '#FFFFFF',
+            weight: 'bold',
+            size: 'md',
+            flex: 1,
+          },
+          {
+            type: 'box',
+            layout: 'vertical',
+            backgroundColor: isHalf ? '#D84315' : '#2E7D32',
+            cornerRadius: '12px',
+            paddingStart: '10px',
+            paddingEnd: '10px',
+            paddingTop: '4px',
+            paddingBottom: '4px',
+            flex: 0,
+            contents: [
+              {
+                type: 'text',
+                text: isHalf ? '🔥 減半中' : '🛡️ 正常',
+                color: '#FFFFFF',
+                size: 'xxs',
+                weight: 'bold',
+              },
+            ],
+          },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'xs',
+        paddingAll: '12px',
+        paddingTop: '4px',
+        contents: [
+          {
+            type: 'text',
+            text: '🔵 動態王  🟡 固定時間王  🔴 10分內重生',
+            color: '#888888',
+            size: 'xxs',
+            margin: 'none',
+          },
+          ...rows,
+        ],
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '12px',
+        paddingTop: '4px',
+        contents: [
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#1976D2',
+            height: 'sm',
+            action: {
+              type: 'uri',
+              label: '📊 開啟即時倒數網頁看板',
+              uri: dashboardUrl,
+            },
+          },
+        ],
+      },
+    },
+  };
 }
 
 // 過期自動依當前週期向後疊加，並累加未登記次數
