@@ -1,28 +1,3 @@
-`KB` 指令內建了純文字備援機制，只要後端程式正常運作，就算卡片格式失敗也會改傳純文字。這次在更新 `public/index.html` 後導致 LINE 上的 `KB` 完全沒反應，最常見的原因是**在 GitHub 編輯時不小心把 `public/index.html` 的網頁程式碼貼進了 `api/webhook.js**`（或是貼上時頭尾多了多餘符號），導致 Vercel 後端函數編譯失敗。
-
-1. **檢查 GitHub 的 api/webhook.js 第一行內容:** 約 15 秒.
-打開 GitHub 專案中的 **`api/webhook.js`**，查看檔案最頂端的第 1 行：
-
-* 如果第 1 行變成 `<!DOCTYPE html>`，代表剛剛不小心把網頁程式碼貼錯檔案覆蓋掉了。
-* 同時可打開 Vercel 後台的 **Deployments** 分頁，確認最上方那筆部署是否顯示紅色 `Error`。
-*Verification:* 確認 `api/webhook.js` 是否被網頁程式碼覆蓋，或 Vercel 最新部署是否為紅色錯誤狀態。
-
-
-2. **還原 api/webhook.js 的完整後端程式碼:** 約 20 秒.
-在 GitHub 打開 **`api/webhook.js`** $\rightarrow$ 點擊右上角鉛筆圖示編輯 $\rightarrow$ 按 `Ctrl + A` 全選舊內容並刪除，完整複製貼上下方「完整版 `api/webhook.js`」程式碼後按 **Commit changes** 儲存（這個動作只會修復 LINE 機器人，不會影響你剛剛更新好的 `public/index.html` 網頁）。
-*Verification:* 等待約 30 秒，Vercel 後台的 **Deployments** 最新紀錄轉為綠燈 `Ready`，且回到 LINE 群組輸入 `KB` 能立刻跳出王表卡片。
-
-
-3. **確認 public/index.html 網頁檔完整無誤:** 約 15 秒.
-打開 GitHub 專案中的 **`public/index.html`**，確認第 1 行為 `<!DOCTYPE html>`、最後一行為 `</html>`；若不完整，再重新用上一則的網頁版程式碼覆蓋並確認 Firebase Firestore 規則已發布 `allow read, write: if true;`。
-*Verification:* LINE 群組的 `KB` 指令與即時監控網頁的「⚔️ 已擊殺」按鈕皆可正常使用並同步倒數。
-
-
----
-
-### 完整版 `api/webhook.js`（請貼入 `api/webhook.js` 檔案中）
-
-```javascript
 import * as line from '@line/bot-sdk';
 import admin from 'firebase-admin';
 
@@ -64,7 +39,7 @@ const BOSS_CONFIGS = [
   { name: '巨人', aliases: ['巨人', '巨', '22'], offset: 270, normal: 720, half: 360 },
   { name: '奈克', aliases: ['奈克', '奈', 'N'], offset: 270, normal: 480, half: 240 },
   { name: '烏勒', aliases: ['烏勒', '烏', '56'], offset: 270, normal: 480, half: 240 },
-  { name: '庫約', aliases: ['庫約', '庫約', '庫'], offset: 280, normal: 240, half: 120 },
+  { name: '庫約', aliases: ['庫約', '库約', '庫'], offset: 280, normal: 240, half: 120 },
   { name: '蛇女', aliases: ['蛇女', '蛇', '123'], offset: 300, normal: 480, half: 240 },
   { name: '狼王', aliases: ['狼王', '狼', 'W'], offset: 310, normal: 480, half: 240 },
   { name: '四色', aliases: ['四色', '四', '4P'], offset: 330, normal: 720, half: 720 },
@@ -528,5 +503,3 @@ function parseHHMMToTimestamp(hhmmStr, now) {
   }
   return targetTs;
 }
-
-```
