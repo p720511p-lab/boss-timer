@@ -219,4 +219,287 @@ async function handleEvent(event, webUrl) {
     };
 
     const modeTag = isHalf ? '🔥減半' : '正常';
-    const replyMsg =
+    const replyMsg = `⚔️ 已登記【${matchedCfg.name}】(${modeTag})\n擊殺時間：${formatTime(killTs)}\n下次重生：${formatTime(nextSpawn)}`;
+
+    await Promise.all([
+      docRef.update({ bosses }),
+      replyText(event.replyToken, replyMsg),
+    ]);
+    return null;
+  }
+
+  // 非 Z 指令時，若有超過 10 分鐘寬限期的首領才執行更新
+  const hasOverdueUpdate = syncOverdueBosses(bosses, isHalf, now);
+  if (hasOverdueUpdate) {
+    await docRef.update({ bosses });
+  }
+
+  // 5. KB 查詢首領重生時間 (原版穩定卡片 + 自動純文字備援)
+  if (upperText === 'KB') {
+    const timeline = [];
+
+    for (const cfg of BOSS_CONFIGS) {
+      const info = bosses[cfg.name];
+      if (!info || !info.nextSpawn) continue;
+      timeline.push({
+        time: info.nextSpawn,
+        name: cfg.name,
+        miss: info.missCount || 0,
+        isFixed: false,
+      });
+    }
+
+    const upcomingFixed = getUpcomingFixedBosses(now);
+    for (const item of upcomingFixed) {
+      timeline.push({
+        time: item.time,
+        name: item.name,
+        miss: 0,
+        isFixed: true,
+      });
+    }
+
+    timeline.sort((a, b) => a.time - b.time);
+
+    const dashboardUrl = `${webUrl}/?group=${groupId}`;
+    const flexMessage = buildKbFlexMessage(timeline, isHalf, now, dashboardUrl);
+
+    try {
+      return await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [flexMessage],
+      });
+    } catch (err) {
+      console.error('Flex error, fallback to text:', err);
+      const modeHeader = isHalf ? '🔥【目前模式：時間減半】' : '🛡️【目前模式：正常重生】';
+      const lines = timeline.map((item) => {
+        const diffMin = Math.ceil((item.time - now) / 60000);
+        const remainStr =
+          diffMin <= 0
+            ? '已出沒'
+            : diffMin >= 60
+            ? `剩 ${Math.floor(diffMin / 60)}時${diffMin % 60}分`
+            : `剩 ${diffMin}分`;
+        const tag = item.isFixed ? '[固定]' : item.miss > 0 ? `(${item.miss})` : '';
+        return `${formatTime(item.time)} ${item.name}${tag} (${remainStr})`;
+      });
+      return replyText(event.replyToken, `${modeHeader}\n\n${lines.join('\n')}\n\n📊 看板：${dashboardUrl}`);
+    }
+  }
+
+  return null;
+}
+
+// 建立暗黑科技感 LINE Flex Message 美化王表卡片（還原原版穩定結構）
+function buildKbFlexMessage(timeline, isHalf, now, dashboardUrl) {
+  const rows = timeline.map((item) => {
+    const diffMin = Math.ceil((item.time - now) / 60000);
+    const isSoon = diffMin <= 10;
+    const remainStr =
+      diffMin <= 0
+        ? '已出沒'
+        : diffMin >= 60
+        ? `${Math.floor(diffMin / 60)}時${diffMin % 60}分`
+        : `${diffMin}分`;
+
+    let rowBg = '#0F1B2E';
+    let borderCol = '#1E3A5F';
+    let timeColor = '#00E5FF';
+    if (item.isFixed) {
+      rowBg = '#241B0D';
+      borderCol = '#5C4318';
+      timeColor = '#FFAB00';
+    } else if (isSoon) {
+      rowBg = '#2B1117';
+      borderCol = '#7A1C2E';
+      timeColor = '#FF3D57';
+    }
+
+    const labelText = item.isFixed
+      ? `${item.name} [固定]`
+      : item.miss > 0
+      ? `${item.name} (未登${item.miss})`
+      : item.name;
+
+    return {
+      type: 'box',
+      layout: 'horizontal',
+      backgroundColor: rowBg,
+      borderColor: borderCol,
+      borderWidth: '1px',
+      cornerRadius: '6px',
+      paddingAll: '7px',
+      contents: [
+        {
+          type: 'text',
+          text: formatTime(item.time),
+          color: timeColor,
+          size: 'xs',
+          weight: 'bold',
+          flex: 2,
+        },
+        {
+          type: 'text',
+          text: labelText,
+          color: '#E2E8F0',
+          size: 'xs',
+          weight: 'bold',
+          flex: 5,
+        },
+        {
+          type: 'text',
+          text: remainStr,
+          color: isSoon ? '#FF6B81' : '#7DD3FC',
+          size: 'xs',
+          weight: isSoon ? 'bold' : 'regular',
+          align: 'end',
+          flex: 3,
+        },
+      ],
+    };
+  });
+
+  return {
+    type: 'flex',
+    altText: isHalf ? '🔥 首領重生時間表 (時間減半中)' : '⚡ 首領重生時間表 (正常重生)',
+    contents: {
+      type: 'bubble',
+      size: 'giga',
+      styles: {
+        header: { backgroundColor: '#090D16' },
+        body: { backgroundColor: '#090D16' },
+        footer: { backgroundColor: '#090D16' },
+      },
+      header: {
+        type: 'box',
+        layout: 'horizontal',
+        paddingAll: '12px',
+        paddingBottom: '6px',
+        contents: [
+          {
+            type: 'text',
+            text: isHalf ? '🔥 BOSS RADAR // 減半中' : '⚡ BOSS RADAR // 正常重生',
+            color: isHalf ? '#FF7043' : '#38BDF8',
+            weight: 'bold',
+            size: 'sm',
+            flex: 1,
+          },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'xs',
+        paddingAll: '10px',
+        paddingTop: '4px',
+        contents: rows,
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '10px',
+        paddingTop: '4px',
+        contents: [
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#0284C7',
+            height: 'sm',
+            action: {
+              type: 'uri',
+              label: '📡 開啟即時監控網頁看板',
+              uri: dashboardUrl,
+            },
+          },
+        ],
+      },
+    },
+  };
+}
+
+// 超過重生時間 10 分鐘仍未登記，才自動依當前週期向後疊加並累加未登記次數
+function syncOverdueBosses(bosses, isHalf, now) {
+  const GRACE_PERIOD_MS = 10 * 60 * 1000;
+  let updated = false;
+
+  for (const cfg of BOSS_CONFIGS) {
+    const info = bosses[cfg.name];
+    if (!info || !info.nextSpawn) continue;
+
+    if (info.nextSpawn <= now - GRACE_PERIOD_MS) {
+      const intervalMin = isHalf ? cfg.half : cfg.normal;
+      const intervalMs = intervalMin * 60 * 1000;
+      const missedCycles = Math.floor((now - GRACE_PERIOD_MS - info.nextSpawn) / intervalMs) + 1;
+
+      info.nextSpawn += missedCycles * intervalMs;
+      info.missCount = (info.missCount || 0) + missedCycles;
+      updated = true;
+    }
+  }
+  return updated;
+}
+
+// 取得未來 24 小時內的固定時間王 (台灣時間 UTC+8)
+function getUpcomingFixedBosses(now) {
+  const results = [];
+  const twOffset = 8 * 3600 * 1000;
+  const twNow = new Date(now + twOffset);
+
+  for (let dayOffset = 0; dayOffset <= 1; dayOffset++) {
+    const targetDate = new Date(
+      Date.UTC(twNow.getUTCFullYear(), twNow.getUTCMonth(), twNow.getUTCDate() + dayOffset)
+    );
+    const dayOfWeek = targetDate.getUTCDay();
+    const daySchedule = FIXED_SCHEDULE[dayOfWeek] || [];
+
+    for (const slot of daySchedule) {
+      const spawnTs =
+        Date.UTC(
+          targetDate.getUTCFullYear(),
+          targetDate.getUTCMonth(),
+          targetDate.getUTCDate(),
+          slot.hour,
+          slot.min,
+          0
+        ) - twOffset;
+
+      if (spawnTs > now && spawnTs <= now + 24 * 3600 * 1000) {
+        for (const name of slot.names) {
+          results.push({ time: spawnTs, name });
+        }
+      }
+    }
+  }
+  return results;
+}
+
+function replyText(replyToken, text) {
+  return client.replyMessage({
+    replyToken,
+    messages: [{ type: 'text', text }],
+  });
+}
+
+function formatTime(ts) {
+  const date = new Date(ts + 8 * 3600 * 1000);
+  const hh = String(date.getUTCHours()).padStart(2, '0');
+  const mm = String(date.getUTCMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+function parseHHMMToTimestamp(hhmmStr, now) {
+  const clean = hhmmStr.replace(':', '');
+  const hh = parseInt(clean.slice(0, 2), 10);
+  const mm = parseInt(clean.slice(2, 4), 10);
+  const twOffset = 8 * 3600 * 1000;
+  const twNow = new Date(now + twOffset);
+
+  let targetTs =
+    Date.UTC(twNow.getUTCFullYear(), twNow.getUTCMonth(), twNow.getUTCDate(), hh, mm, 0) - twOffset;
+
+  // 若輸入時間比現在晚超過 10 分鐘，判定為前一天跨夜補登
+  if (targetTs > now + 10 * 60 * 1000) {
+    targetTs -= 24 * 3600 * 1000;
+  }
+  return targetTs;
+}
