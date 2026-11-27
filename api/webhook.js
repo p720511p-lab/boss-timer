@@ -39,7 +39,7 @@ const BOSS_CONFIGS = [
   { name: '巨人', aliases: ['巨人', '巨', '22'], offset: 270, normal: 720, half: 360 },
   { name: '奈克', aliases: ['奈克', '奈', 'N'], offset: 270, normal: 480, half: 240 },
   { name: '烏勒', aliases: ['烏勒', '烏', '56'], offset: 270, normal: 480, half: 240 },
-  { name: '庫約', aliases: ['庫約', '庫約', '庫'], offset: 280, normal: 240, half: 120 },
+  { name: '庫約', aliases: ['庫約', '库約', '庫'], offset: 280, normal: 240, half: 120 },
   { name: '蛇女', aliases: ['蛇女', '蛇', '123'], offset: 300, normal: 480, half: 240 },
   { name: '狼王', aliases: ['狼王', '狼', 'W'], offset: 310, normal: 480, half: 240 },
   { name: '四色', aliases: ['四色', '四', '4P'], offset: 330, normal: 720, half: 720 },
@@ -193,4 +193,30 @@ async function handleEvent(event, webUrl) {
   }
 
   // 4. 登記擊殺：支援 "Z 尼" 或 "Z 尼 1850"
-  const zMatch = text.match(/^z\s*([^\s\d:]+|[0-9]{1,3})(?:\s+(\d{2}:?\
+  const zMatch = text.match(/^z\s*([^\s\d:]+|[0-9]{1,3})(?:\s+(\d{2}:?\d{2}))?$/i);
+  if (zMatch) {
+    const inputAlias = zMatch[1].trim().toUpperCase();
+    const timeStr = zMatch[2];
+
+    const matchedCfg = BOSS_CONFIGS.find((cfg) =>
+      cfg.aliases.some((alias) => alias.toUpperCase() === inputAlias)
+    );
+
+    if (!matchedCfg) {
+      return replyText(event.replyToken, `❓ 找不到首領「${zMatch[1]}」，請確認名稱或別名。`);
+    }
+
+    syncOverdueBosses(bosses, isHalf, now);
+
+    const killTs = timeStr ? parseHHMMToTimestamp(timeStr, now) : now;
+    const respawnMin = isHalf ? matchedCfg.half : matchedCfg.normal;
+    const nextSpawn = killTs + respawnMin * 60 * 1000;
+
+    bosses[matchedCfg.name] = {
+      lastKill: killTs,
+      nextSpawn,
+      missCount: 0,
+    };
+
+    const modeTag = isHalf ? '🔥減半' : '正常';
+    const replyMsg =
