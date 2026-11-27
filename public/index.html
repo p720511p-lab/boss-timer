@@ -246,4 +246,349 @@
       border: none;
     }
     .btn-cancel { background: #334155; color: #cbd5e1; }
+    .btn-confirm { background: #0284c7; color: #ffffff; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h2>⚡ BOSS RADAR // 即時監控</h2>
+    <div class="header-actions">
+      <button id="pipBtn" class="pip-btn" title="開啟永遠置頂迷你小視窗">📌 懸浮置頂</button>
+      <span id="modeBadge" class="badge badge-normal">連線中...</span>
+    </div>
+  </div>
+  <div id="board">同步資料中...</div>
+
+  <div id="customModal" class="modal-backdrop">
+    <div class="modal-box">
+      <div id="modalTitle" class="modal-title">補登擊殺時間</div>
+      <input id="modalTimeInput" class="modal-input" type="text" maxlength="5" placeholder="例如 2115 或 21:15">
+      <div class="modal-btns">
+        <button id="modalCancel" class="btn-cancel">取消</button>
+        <button id="modalConfirm" class="btn-confirm">確認登記</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getFirestore, doc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyB-OH0xoozWSNy8z69KVrjNptBJYp7mOjU",
+      authDomain: "fir-188fc.firebaseapp.com",
+      projectId: "fir-188fc",
+      storageBucket: "fir-188fc.firebasestorage.app",
+      messagingSenderId: "867001169940",
+      appId: "1:867001169940:web:169eee613108d0aeab8f01"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const BOSS_INTERVALS = {
+      '野豬': [240, 120], '夫人': [240, 120], '飛龍3': [240, 120], '飛龍4': [240, 120],
+      '卡王': [240, 120], '大腳': [240, 120], '黑虎': [240, 120], '海賊': [240, 120],
+      '茉莉': [240, 120], '奧杜亞': [240, 120], '飛龍1': [240, 120], '飛龍2': [240, 120],
+      '殺戮者': [240, 120], '麥肯': [240, 120], '蜥蜴': [240, 120], '巨人': [720, 360],
+      '奈克': [480, 240], '烏勒': [480, 240], '庫約': [240, 120], '库約': [240, 120],
+      '蛇女': [480, 240], '狼王': [480, 240], '四色': [720, 720], '頭目': [480, 240],
+      '克洛林': [480, 480], '鱷魚': [480, 240]
+    };
+
+    const FIXED_SCHEDULE = {
+      0: [{ h: 18, m: 0, n: ['克特', '阿勒尼亞'] }, { h: 18, m: 15, n: ['巫師', '變怪'] }, { h: 18, m: 30, n: ['卡爾圖蘭(大花草)'] }],
+      1: [{ h: 18, m: 0, n: ['克特', '阿勒尼亞'] }, { h: 18, m: 15, n: ['巫師', '變怪'] }, { h: 18, m: 30, n: ['死亡(炎魔五樓)', '巨蟻女王'] }],
+      2: [{ h: 18, m: 0, n: ['克特', '阿勒尼亞'] }, { h: 18, m: 15, n: ['巫師', '變怪'] }, { h: 18, m: 30, n: ['古拉(火焰五樓)', '巨蟻女王'] }],
+      3: [{ h: 18, m: 0, n: ['克特', '阿勒尼亞'] }, { h: 18, m: 15, n: ['巫師', '變怪'] }, { h: 18, m: 30, n: ['死亡(炎魔)', '巨蟻女王'] }],
+      4: [{ h: 18, m: 0, n: ['克特', '阿勒尼亞'] }, { h: 18, m: 15, n: ['巫師', '變怪'] }, { h: 18, m: 30, n: ['古拉(火焰五樓)', '巨蟻女王'] }],
+      5: [{ h: 18, m: 0, n: ['克特', '阿勒尼亞'] }, { h: 18, m: 15, n: ['巫師', '變怪'] }, { h: 18, m: 30, n: ['墮落(火焰八樓)', '巨蟻女王'] }],
+      6: [{ h: 18, m: 0, n: ['克特', '阿勒尼亞'] }, { h: 18, m: 15, n: ['巫師', '變怪'] }, { h: 18, m: 30, n: ['惡魔(炎魔八樓)', '巨蟻女王'] }]
+    };
+
+    const groupId = new URLSearchParams(window.location.search).get('group');
+    let groupData = null;
+    let pipWindow = null;
+    let pendingCustomBoss = null;
+
+    async function recordBossKill(bossName, customTimeStr = null) {
+      if (!groupId || !groupData || !BOSS_INTERVALS[bossName]) return;
+      const now = Date.now();
+      const isHalf = Boolean(groupData.isHalfEvent);
+      let killTs = now;
+
+      if (customTimeStr) {
+        const clean = customTimeStr.replace(':', '').trim();
+        if (!/^\d{4}$/.test(clean)) {
+          alert('時間格式錯誤，請輸入 4 位數字（例如 2115 或 21:15）。');
+          return;
+        }
+        const hh = parseInt(clean.slice(0, 2), 10);
+        const mm = parseInt(clean.slice(2, 4), 10);
+        if (hh > 23 || mm > 59) {
+          alert('時間數值超出範圍，請重新確認。');
+          return;
+        }
+        const twOffset = 8 * 3600000;
+        const twNow = new Date(now + twOffset);
+        killTs = Date.UTC(twNow.getUTCFullYear(), twNow.getUTCMonth(), twNow.getUTCDate(), hh, mm, 0) - twOffset;
+        if (killTs > now + 10 * 60000) {
+          killTs -= 86400000;
+        }
+      }
+
+      const respawnMin = isHalf ? BOSS_INTERVALS[bossName][1] : BOSS_INTERVALS[bossName][0];
+      const nextSpawn = killTs + respawnMin * 60000;
+
+      try {
+        await updateDoc(doc(db, 'groups', groupId), {
+          [`bosses.${bossName}`]: {
+            lastKill: killTs,
+            nextSpawn: nextSpawn,
+            missCount: 0
+          }
+        });
+      } catch (err) {
+        console.error('Update error:', err);
+        alert('登記失敗：請確認 Firebase Firestore 規則已允許寫入權限。\n錯誤細節：' + err.message);
+      }
+    }
+
+    function handleBoardClick(e, targetWin = window) {
+      const killBtn = e.target.closest('.btn-kill');
+      if (killBtn) {
+        const bossName = killBtn.dataset.boss;
+        recordBossKill(bossName);
+        return;
+      }
+
+      const customBtn = e.target.closest('.btn-custom');
+      if (customBtn) {
+        const bossName = customBtn.dataset.boss;
+        const twNow = new Date(Date.now() + 8 * 3600000);
+        const defaultStr = `${String(twNow.getUTCHours()).padStart(2, '0')}${String(twNow.getUTCMinutes()).padStart(2, '0')}`;
+
+        if (targetWin !== window) {
+          const input = targetWin.prompt(`補登【${bossName}】擊殺時間（4碼，如 2115）：`, defaultStr);
+          if (input !== null) recordBossKill(bossName, input);
+        } else {
+          pendingCustomBoss = bossName;
+          document.getElementById('modalTitle').textContent = `🕒 補登【${bossName}】擊殺時間`;
+          const inputEl = document.getElementById('modalTimeInput');
+          inputEl.value = defaultStr;
+          document.getElementById('customModal').style.display = 'flex';
+          inputEl.focus();
+          inputEl.select();
+        }
+      }
+    }
+
+    document.getElementById('board').addEventListener('click', (e) => handleBoardClick(e, window));
+
+    document.getElementById('modalCancel').addEventListener('click', () => {
+      document.getElementById('customModal').style.display = 'none';
+      pendingCustomBoss = null;
+    });
+
+    document.getElementById('modalConfirm').addEventListener('click', () => {
+      const val = document.getElementById('modalTimeInput').value;
+      if (pendingCustomBoss) {
+        recordBossKill(pendingCustomBoss, val);
+      }
+      document.getElementById('customModal').style.display = 'none';
+      pendingCustomBoss = null;
+    });
+
+    document.getElementById('modalTimeInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('modalConfirm').click();
+      if (e.key === 'Escape') document.getElementById('modalCancel').click();
+    });
+
+    const pipBtn = document.getElementById('pipBtn');
+    pipBtn.addEventListener('click', async () => {
+      if (!('documentPictureInPicture' in window)) {
+        alert('您目前的瀏覽器不支援懸浮小視窗，建議使用電腦版 Chrome 或 Edge 瀏覽器開啟。');
+        return;
+      }
+
+      if (pipWindow && !pipWindow.closed) {
+        pipWindow.close();
+        return;
+      }
+
+      try {
+        pipWindow = await window.documentPictureInPicture.requestWindow({
+          width: 350,
+          height: 480
+        });
+
+        [...document.styleSheets].forEach((styleSheet) => {
+          try {
+            const cssRules = [...styleSheet.cssRules].map((rule) => rule.cssText).join('');
+            const style = document.createElement('style');
+            style.textContent = cssRules;
+            pipWindow.document.head.appendChild(style);
+          } catch (e) {}
+        });
+
+        pipWindow.document.body.style.padding = '10px';
+        pipWindow.document.body.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #1e293b;padding-bottom:8px;margin-bottom:10px;">
+            <span style="color:#38bdf8;font-weight:bold;font-size:14px;">⚡ BOSS 懸浮監控</span>
+            <span id="pipMode" class="badge badge-normal" style="font-size:11px;padding:3px 8px;">載入中</span>
+          </div>
+          <div id="pipBoard"></div>
+        `;
+
+        pipWindow.document.getElementById('pipBoard').addEventListener('click', (e) => handleBoardClick(e, pipWindow));
+
+        pipBtn.textContent = '📌 關閉懸浮';
+        pipWindow.addEventListener('pagehide', () => {
+          pipWindow = null;
+          pipBtn.textContent = '📌 懸浮置頂';
+        });
+
+        render();
+      } catch (err) {
+        console.error('PiP error:', err);
+      }
+    });
+
+    if (!groupId) {
+      document.getElementById('board').innerHTML = '<p>請在 LINE 群組輸入「網頁」取得專屬看板連結。</p>';
+    } else {
+      onSnapshot(doc(db, 'groups', groupId), (snap) => {
+        if (snap.exists()) {
+          groupData = snap.data();
+          render();
+        } else {
+          document.getElementById('board').innerHTML = '<p>尚未初始化王表，請在 LINE 群組輸入 RE。</p>';
+        }
+      });
+    }
+
+    setInterval(render, 1000);
+
+    function render() {
+      if (!groupData) return;
+      const now = Date.now();
+      const isHalf = Boolean(groupData.isHalfEvent);
+      const GRACE_PERIOD_MS = 10 * 60 * 1000;
+
+      const badge = document.getElementById('modeBadge');
+      badge.className = isHalf ? 'badge badge-half' : 'badge badge-normal';
+      badge.textContent = isHalf ? '🔥 時間減半中' : '🛡️ 正常重生';
+
+      const list = [];
+      const bosses = groupData.bosses || {};
+
+      for (const [name, info] of Object.entries(bosses)) {
+        if (!info.nextSpawn) continue;
+        let nextSpawn = info.nextSpawn;
+        let miss = info.missCount || 0;
+
+        if (nextSpawn <= now - GRACE_PERIOD_MS && BOSS_INTERVALS[name]) {
+          const intervalMs = (isHalf ? BOSS_INTERVALS[name][1] : BOSS_INTERVALS[name][0]) * 60000;
+          const missed = Math.floor((now - GRACE_PERIOD_MS - nextSpawn) / intervalMs) + 1;
+          nextSpawn += missed * intervalMs;
+          miss += missed;
+        }
+
+        const isSpawned = nextSpawn <= now;
+        list.push({ name, time: nextSpawn, miss, isFixed: false, isSpawned });
+      }
+
+      const twOffset = 8 * 3600000;
+      const twNow = new Date(now + twOffset);
+      for (let d = -1; d <= 1; d++) {
+        const dt = new Date(Date.UTC(twNow.getUTCFullYear(), twNow.getUTCMonth(), twNow.getUTCDate() + d));
+        for (const slot of (FIXED_SCHEDULE[dt.getUTCDay()] || [])) {
+          const ts = Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate(), slot.h, slot.m, 0) - twOffset;
+          if (ts > now - GRACE_PERIOD_MS && ts <= now + 86400000) {
+            const isSpawned = ts <= now;
+            slot.n.forEach(n => list.push({ name: n, time: ts, miss: 0, isFixed: true, isSpawned }));
+          }
+        }
+      }
+
+      list.sort((a, b) => a.time - b.time);
+
+      const htmlContent = list.map(item => {
+        const diff = item.time - now;
+        const isSpawned = diff <= 0;
+        const isSoon = !isSpawned && diff <= 10 * 60000;
+
+        let timerDisplay = '';
+        if (isSpawned) {
+          const elapsed = Math.abs(diff);
+          const em = String(Math.floor(elapsed / 60000)).padStart(2, '0');
+          const es = String(Math.floor((elapsed % 60000) / 1000)).padStart(2, '0');
+          timerDisplay = `已過 ${em}:${es}`;
+        } else {
+          const h = String(Math.floor(diff / 3600000)).padStart(2, '0');
+          const m = String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0');
+          const s = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
+          timerDisplay = `${h}:${m}:${s}`;
+        }
+
+        const d = new Date(item.time + twOffset);
+        const timeStr = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+
+        let tagHtml = '';
+        if (isSpawned) {
+          tagHtml += '<span class="spawned-tag">🔥 已出沒</span>';
+        }
+        if (item.isFixed) {
+          tagHtml += '<span class="fixed-tag">固定時間</span>';
+        } else if (item.miss > 0) {
+          tagHtml += `<span class="miss-tag">未登 ${item.miss} 次</span>`;
+        }
+
+        // 嚴格防呆：只有「已經出沒 (isSpawned)」的動態首領才顯示擊殺與補登按鈕
+        const actionBtnsHtml = (!item.isFixed && isSpawned) ? `
+          <div class="kill-actions">
+            <button class="btn-kill" data-boss="${item.name}" title="以現在時間登記擊殺">⚔️ 已擊殺</button>
+            <button class="btn-custom" data-boss="${item.name}" title="輸入指定擊殺時間">🕒 補登</button>
+          </div>
+        ` : '';
+
+        const cardClasses = [
+          'card',
+          isSpawned ? 'spawned' : '',
+          !isSpawned && item.isFixed ? 'fixed' : '',
+          isSoon ? 'soon' : ''
+        ].filter(Boolean).join(' ');
+
+        return `
+          <div class="${cardClasses}">
+            <div>
+              <div class="name-row">
+                <span class="boss-name">${item.name}${!item.isFixed && item.miss > 0 ? `(${item.miss})` : ''}</span>
+                ${tagHtml}
+              </div>
+              <div class="sub-info">${isSpawned ? '重生時間' : '預計重生'}：${timeStr}</div>
+            </div>
+            <div class="right-panel">
+              <div class="countdown">${timerDisplay}</div>
+              ${actionBtnsHtml}
+            </div>
+          </div>`;
+      }).join('');
+
+      document.getElementById('board').innerHTML = htmlContent;
+
+      if (pipWindow && !pipWindow.closed) {
+        const pipMode = pipWindow.document.getElementById('pipMode');
+        const pipBoard = pipWindow.document.getElementById('pipBoard');
+        if (pipMode) {
+          pipMode.className = isHalf ? 'badge badge-half' : 'badge badge-normal';
+          pipMode.textContent = isHalf ? '🔥 減半中' : '🛡️ 正常';
+        }
+        if (pipBoard) {
+          pipBoard.innerHTML = htmlContent;
+        }
+      }
+    }
+  </script>
+</body>
 </html>
