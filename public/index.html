@@ -5,12 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>首領重生即時監控看板</title>
   <style>
+    * { box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background-color: #090d16;
       background-image: radial-gradient(circle at 50% 0%, #132238 0%, #090d16 70%);
       color: #e2e8f0;
-      padding: 16px;
+      padding: 14px;
       max-width: 680px;
       margin: auto;
       min-height: 100vh;
@@ -19,19 +20,41 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
       border-bottom: 1px solid #1e293b;
-      padding-bottom: 14px;
-      margin-bottom: 18px;
+      padding-bottom: 12px;
+      margin-bottom: 14px;
     }
     h2 {
       margin: 0;
-      font-size: 19px;
+      font-size: 18px;
       letter-spacing: 0.5px;
       color: #38bdf8;
       text-shadow: 0 0 12px rgba(56, 189, 248, 0.35);
     }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .pip-btn {
+      background: rgba(56, 189, 248, 0.15);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.45);
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .pip-btn:hover {
+      background: rgba(56, 189, 248, 0.3);
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+    }
     .badge {
-      padding: 5px 14px;
+      padding: 5px 12px;
       border-radius: 20px;
       font-weight: bold;
       font-size: 12px;
@@ -51,8 +74,8 @@
     }
     .card {
       background: linear-gradient(90deg, #0f1b2e 0%, #111827 100%);
-      margin-bottom: 10px;
-      padding: 13px 16px;
+      margin-bottom: 8px;
+      padding: 11px 14px;
       border-radius: 10px;
       display: flex;
       justify-content: space-between;
@@ -60,6 +83,18 @@
       border: 1px solid #1e3a5f;
       border-left: 4px solid #00e5ff;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    }
+    /* 剛出沒（0 ~ 10 分鐘內）醒目霓虹紫警報樣式 */
+    .card.spawned {
+      background: linear-gradient(90deg, #2e1042 0%, #1a0f26 100%);
+      border-color: #7e22ce;
+      border-left-color: #d946ef;
+      box-shadow: 0 0 16px rgba(217, 70, 239, 0.35);
+      animation: pulseGlow 2s infinite alternate;
+    }
+    @keyframes pulseGlow {
+      from { box-shadow: 0 0 8px rgba(217, 70, 239, 0.25); }
+      to { box-shadow: 0 0 18px rgba(217, 70, 239, 0.55); }
     }
     .card.fixed {
       background: linear-gradient(90deg, #241b0d 0%, #171412 100%);
@@ -72,8 +107,17 @@
       border-left-color: #ff3d57;
       box-shadow: 0 0 15px rgba(255, 61, 87, 0.2);
     }
-    .name-row { display: flex; align-items: center; gap: 8px; }
+    .name-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .boss-name { font-size: 16px; font-weight: bold; color: #f8fafc; }
+    .spawned-tag {
+      background: rgba(217, 70, 239, 0.25);
+      color: #f0abfc;
+      border: 1px solid rgba(217, 70, 239, 0.6);
+      font-size: 11px;
+      font-weight: bold;
+      padding: 1px 6px;
+      border-radius: 4px;
+    }
     .miss-tag {
       background: rgba(245, 158, 11, 0.15);
       color: #fbbf24;
@@ -90,13 +134,19 @@
       padding: 1px 6px;
       border-radius: 4px;
     }
-    .sub-info { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+    .sub-info { font-size: 12px; color: #94a3b8; margin-top: 3px; }
     .countdown {
-      font-size: 20px;
+      font-size: 19px;
       font-weight: bold;
       font-variant-numeric: tabular-nums;
       color: #00e5ff;
       text-shadow: 0 0 10px rgba(0, 229, 255, 0.3);
+      text-align: right;
+    }
+    .spawned .countdown {
+      color: #f0abfc;
+      font-size: 17px;
+      text-shadow: 0 0 12px rgba(217, 70, 239, 0.5);
     }
     .fixed .countdown {
       color: #ffab00;
@@ -111,7 +161,10 @@
 <body>
   <div class="header">
     <h2>⚡ BOSS RADAR // 即時監控</h2>
-    <span id="modeBadge" class="badge badge-normal">連線中...</span>
+    <div class="header-actions">
+      <button id="pipBtn" class="pip-btn" title="開啟永遠置頂迷你小視窗">📌 懸浮置頂</button>
+      <span id="modeBadge" class="badge badge-normal">連線中...</span>
+    </div>
   </div>
   <div id="board">同步資料中...</div>
 
@@ -153,6 +206,57 @@
 
     const groupId = new URLSearchParams(window.location.search).get('group');
     let groupData = null;
+    let pipWindow = null;
+
+    // 懸浮置頂子母畫面 (Document Picture-in-Picture) 功能
+    const pipBtn = document.getElementById('pipBtn');
+    pipBtn.addEventListener('click', async () => {
+      if (!('documentPictureInPicture' in window)) {
+        alert('您目前的瀏覽器不支援懸浮小視窗，建議使用電腦版 Chrome 或 Edge 瀏覽器開啟。');
+        return;
+      }
+
+      if (pipWindow && !pipWindow.closed) {
+        pipWindow.close();
+        return;
+      }
+
+      try {
+        pipWindow = await window.documentPictureInPicture.requestWindow({
+          width: 340,
+          height: 460
+        });
+
+        // 複製主畫面所有 CSS 樣式到懸浮小視窗
+        [...document.styleSheets].forEach((styleSheet) => {
+          try {
+            const cssRules = [...styleSheet.cssRules].map((rule) => rule.cssText).join('');
+            const style = document.createElement('style');
+            style.textContent = cssRules;
+            pipWindow.document.head.appendChild(style);
+          } catch (e) {}
+        });
+
+        pipWindow.document.body.style.padding = '10px';
+        pipWindow.document.body.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #1e293b;padding-bottom:8px;margin-bottom:10px;">
+            <span style="color:#38bdf8;font-weight:bold;font-size:14px;">⚡ BOSS 懸浮監控</span>
+            <span id="pipMode" class="badge badge-normal" style="font-size:11px;padding:3px 8px;">載入中</span>
+          </div>
+          <div id="pipBoard"></div>
+        `;
+
+        pipBtn.textContent = '📌 關閉懸浮';
+        pipWindow.addEventListener('pagehide', () => {
+          pipWindow = null;
+          pipBtn.textContent = '📌 懸浮置頂';
+        });
+
+        render();
+      } catch (err) {
+        console.error('PiP error:', err);
+      }
+    });
 
     if (!groupId) {
       document.getElementById('board').innerHTML = '<p>請在 LINE 群組輸入「網頁」取得專屬看板連結。</p>';
@@ -173,6 +277,7 @@
       if (!groupData) return;
       const now = Date.now();
       const isHalf = Boolean(groupData.isHalfEvent);
+      const GRACE_PERIOD_MS = 10 * 60 * 1000; // 保留顯示剛過 10 分鐘內的首領
 
       const badge = document.getElementById('modeBadge');
       badge.className = isHalf ? 'badge badge-half' : 'badge badge-normal';
@@ -186,55 +291,99 @@
         let nextSpawn = info.nextSpawn;
         let miss = info.missCount || 0;
 
-        if (nextSpawn <= now && BOSS_INTERVALS[name]) {
+        // 超過 10 分鐘寬限期才自動往後疊加下一輪；10 分鐘內保留顯示「剛出沒」狀態
+        if (nextSpawn <= now - GRACE_PERIOD_MS && BOSS_INTERVALS[name]) {
           const intervalMs = (isHalf ? BOSS_INTERVALS[name][1] : BOSS_INTERVALS[name][0]) * 60000;
-          const missed = Math.floor((now - nextSpawn) / intervalMs) + 1;
+          const missed = Math.floor((now - GRACE_PERIOD_MS - nextSpawn) / intervalMs) + 1;
           nextSpawn += missed * intervalMs;
           miss += missed;
         }
-        list.push({ name, time: nextSpawn, miss, isFixed: false });
+
+        const isSpawned = nextSpawn <= now;
+        list.push({ name, time: nextSpawn, miss, isFixed: false, isSpawned });
       }
 
       const twOffset = 8 * 3600000;
       const twNow = new Date(now + twOffset);
-      for (let d = 0; d <= 1; d++) {
+      for (let d = -1; d <= 1; d++) {
         const dt = new Date(Date.UTC(twNow.getUTCFullYear(), twNow.getUTCMonth(), twNow.getUTCDate() + d));
         for (const slot of (FIXED_SCHEDULE[dt.getUTCDay()] || [])) {
           const ts = Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate(), slot.h, slot.m, 0) - twOffset;
-          if (ts > now && ts <= now + 86400000) {
-            slot.n.forEach(n => list.push({ name: n, time: ts, miss: 0, isFixed: true }));
+          // 固定王也保留顯示剛過 10 分鐘內
+          if (ts > now - GRACE_PERIOD_MS && ts <= now + 86400000) {
+            const isSpawned = ts <= now;
+            slot.n.forEach(n => list.push({ name: n, time: ts, miss: 0, isFixed: true, isSpawned }));
           }
         }
       }
 
       list.sort((a, b) => a.time - b.time);
 
-      document.getElementById('board').innerHTML = list.map(item => {
+      const htmlContent = list.map(item => {
         const diff = item.time - now;
-        const isSoon = diff <= 10 * 60000;
-        const h = String(Math.floor(diff / 3600000)).padStart(2, '0');
-        const m = String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0');
-        const s = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
+        const isSpawned = diff <= 0;
+        const isSoon = !isSpawned && diff <= 10 * 60000;
+
+        let timerDisplay = '';
+        if (isSpawned) {
+          const elapsed = Math.abs(diff);
+          const em = String(Math.floor(elapsed / 60000)).padStart(2, '0');
+          const es = String(Math.floor((elapsed % 60000) / 1000)).padStart(2, '0');
+          timerDisplay = `已過 ${em}:${es}`;
+        } else {
+          const h = String(Math.floor(diff / 3600000)).padStart(2, '0');
+          const m = String(Math.floor((diff % 3600000) / 60000)).padStart(2, '0');
+          const s = String(Math.floor((diff % 60000) / 1000)).padStart(2, '0');
+          timerDisplay = `${h}:${m}:${s}`;
+        }
 
         const d = new Date(item.time + twOffset);
         const timeStr = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
 
-        const tagHtml = item.isFixed
-          ? '<span class="fixed-tag">固定時間</span>'
-          : (item.miss > 0 ? `<span class="miss-tag">未登 ${item.miss} 次</span>` : '');
+        let tagHtml = '';
+        if (isSpawned) {
+          tagHtml += '<span class="spawned-tag">🔥 已出沒</span>';
+        }
+        if (item.isFixed) {
+          tagHtml += '<span class="fixed-tag">固定時間</span>';
+        } else if (item.miss > 0) {
+          tagHtml += `<span class="miss-tag">未登 ${item.miss} 次</span>`;
+        }
+
+        const cardClasses = [
+          'card',
+          isSpawned ? 'spawned' : '',
+          !isSpawned && item.isFixed ? 'fixed' : '',
+          isSoon ? 'soon' : ''
+        ].filter(Boolean).join(' ');
 
         return `
-          <div class="card ${item.isFixed ? 'fixed' : ''} ${isSoon ? 'soon' : ''}">
+          <div class="${cardClasses}">
             <div>
               <div class="name-row">
                 <span class="boss-name">${item.name}${!item.isFixed && item.miss > 0 ? `(${item.miss})` : ''}</span>
                 ${tagHtml}
               </div>
-              <div class="sub-info">預計重生：${timeStr}</div>
+              <div class="sub-info">${isSpawned ? '重生時間' : '預計重生'}：${timeStr}</div>
             </div>
-            <div class="countdown">${h}:${m}:${s}</div>
+            <div class="countdown">${timerDisplay}</div>
           </div>`;
       }).join('');
+
+      document.getElementById('board').innerHTML = htmlContent;
+
+      // 若有開啟懸浮置頂小視窗，同步更新畫面
+      if (pipWindow && !pipWindow.closed) {
+        const pipMode = pipWindow.document.getElementById('pipMode');
+        const pipBoard = pipWindow.document.getElementById('pipBoard');
+        if (pipMode) {
+          pipMode.className = isHalf ? 'badge badge-half' : 'badge badge-normal';
+          pipMode.textContent = isHalf ? '🔥 減半中' : '🛡️ 正常';
+        }
+        if (pipBoard) {
+          pipBoard.innerHTML = htmlContent;
+        }
+      }
     }
   </script>
 </body>
