@@ -115,6 +115,15 @@
       from { box-shadow: 0 0 8px rgba(217, 70, 239, 0.25); }
       to { box-shadow: 0 0 18px rgba(217, 70, 239, 0.55); }
     }
+    .card.killed-lock {
+      background: linear-gradient(90deg, #1e293b 0%, #0f172a 100%);
+      border-color: #475569;
+      border-left-color: #64748b;
+      box-shadow: none;
+      animation: none;
+      filter: grayscale(100%);
+      opacity: 0.65;
+    }
     .card.fixed {
       background: linear-gradient(90deg, #241b0d 0%, #171412 100%);
       border-color: #5c4318;
@@ -132,6 +141,15 @@
       background: rgba(217, 70, 239, 0.25);
       color: #f0abfc;
       border: 1px solid rgba(217, 70, 239, 0.6);
+      font-size: 11px;
+      font-weight: bold;
+      padding: 1px 6px;
+      border-radius: 4px;
+    }
+    .killed-tag {
+      background: rgba(148, 163, 184, 0.2);
+      color: #cbd5e1;
+      border: 1px solid rgba(148, 163, 184, 0.45);
       font-size: 11px;
       font-weight: bold;
       padding: 1px 6px;
@@ -172,6 +190,11 @@
       color: #f0abfc;
       font-size: 16px;
       text-shadow: 0 0 12px rgba(217, 70, 239, 0.5);
+    }
+    .killed-lock .countdown {
+      color: #94a3b8;
+      font-size: 16px;
+      text-shadow: none;
     }
     .fixed .countdown {
       color: #ffab00;
@@ -214,9 +237,17 @@
       cursor: pointer;
       transition: all 0.15s;
     }
-    .btn-custom:hover {
+    .btn-custom:hover:not(:disabled) {
       background: rgba(148, 163, 184, 0.35);
       color: #ffffff;
+    }
+    .btn-locked,
+    .btn-locked:disabled {
+      background: rgba(71, 85, 105, 0.25);
+      color: #94a3b8;
+      border: 1px solid rgba(100, 116, 139, 0.4);
+      cursor: not-allowed;
+      opacity: 0.8;
     }
     .modal-backdrop {
       display: none;
@@ -366,6 +397,7 @@
       ]
     };
 
+    const KILL_LOCK_MS = 10 * 1000;
     const groupId = new URLSearchParams(window.location.search).get('group');
     let groupData = null;
     let pipWindow = null;
@@ -373,6 +405,12 @@
     let submittingBoss = null;
     let isPointerDown = false;
     let bannerTimer = null;
+
+    // 追蹤最新擊殺紀錄與 10 秒原地灰階鎖定狀態（全體同步防遞補誤觸）
+    let knownLastKill = {};
+    let recentKillMap = {};
+    let lastSpawnTimeMap = {};
+    let isFirstSnapshot = true;
 
     function showStatus(msg, isOk = true) {
       if (bannerTimer) clearTimeout(bannerTimer);
@@ -431,6 +469,12 @@
         const result = await resp.json();
         if (!resp.ok || !result.ok) {
           throw new Error(result.error || `HTTP ${resp.status}`);
+        }
+
+        const now = Date.now();
+        knownLastKill[result.bossName] = result.killTs;
+        if (Math.abs(now - result.killTs) < 60000) {
+          recentKillMap[result.bossName] = now;
         }
 
         if (groupData.bosses) {
@@ -508,6 +552,7 @@
         isPointerDown = false;
         const killBtn = e.target.closest('.btn-kill');
         if (killBtn) {
+          if (killBtn.disabled) return;
           const bossName = killBtn.dataset.boss;
           if (submittingBoss === bossName) return;
           recordBossKill(bossName, null);
@@ -516,6 +561,7 @@
 
         const customBtn = e.target.closest('.btn-custom');
         if (customBtn) {
+          if (customBtn.disabled) return;
           const bossName = customBtn.dataset.boss;
           openCustomModal(bossName, targetWin);
         }
@@ -592,7 +638,32 @@
     } else {
       onSnapshot(doc(db, 'groups', groupId), (snap) => {
         if (snap.exists()) {
-          groupData = snap.data();
+          const newData = snap.data();
+          const newBosses = newData.bosses || {};
+          const now = Date.now();
+
+          for (const [name, info] of Object.entries(newBosses)) {
+            const prevKill = knownLastKill[name];
+            const currKill = info.lastKill || null;
+
+            if (isFirstSnapshot) {
+              knownLastKill[name] = currKill;
+              if (currKill && Math.abs(now - currKill) < KILL_LOCK_MS) {
+                recentKillMap[name] = currKill;
+              }
+            } else if (currKill && currKill !== prevKill) {
+              knownLastKill[name] = currKill;
+              // 只要為 60 秒內發生的即時擊殺（包含他人按網頁或 LINE 輸入 Z），即啟動 10 秒原地灰階鎖定
+              if (Math.abs(now - currKill) < 60000) {
+                recentKillMap[name] = now;
+              }
+            } else if (!currKill) {
+              knownLastKill[name] = null;
+            }
+          }
+
+          isFirstSnapshot = false;
+          groupData = newData;
           render();
         } else {
           document.getElementById('board').innerHTML = '<p>尚未初始化王表，請在 LINE 群組輸入 RE。</p>';
@@ -622,15 +693,39 @@
         let nextSpawn = info.nextSpawn;
         let miss = info.missCount || 0;
 
-        if (nextSpawn <= now - GRACE_PERIOD_MS && BOSS_INTERVALS[name]) {
+        const lockedSince = recentKillMap[name];
+        const lockElapsed = lockedSince ? (now - lockedSince) : Infinity;
+        const isLocked = lockElapsed >= 0 && lockElapsed < KILL_LOCK_MS;
+
+        if (!isLocked && lockedSince) {
+          delete recentKillMap[name];
+        }
+
+        if (!isLocked && nextSpawn <= now - GRACE_PERIOD_MS && BOSS_INTERVALS[name]) {
           const intervalMs = (isHalf ? BOSS_INTERVALS[name][1] : BOSS_INTERVALS[name][0]) * 60000;
           const missed = Math.floor((now - GRACE_PERIOD_MS - nextSpawn) / intervalMs) + 1;
           nextSpawn += missed * intervalMs;
           miss += missed;
         }
 
-        const isSpawned = nextSpawn <= now;
-        list.push({ name, time: nextSpawn, miss, isFixed: false, isSpawned });
+        const isSpawned = !isLocked && nextSpawn <= now;
+        if (isSpawned) {
+          lastSpawnTimeMap[name] = nextSpawn;
+        }
+
+        const sortTime = isLocked ? (lastSpawnTimeMap[name] || (now - 1000)) : nextSpawn;
+        const lockRemainSec = isLocked ? Math.max(1, Math.ceil((KILL_LOCK_MS - lockElapsed) / 1000)) : 0;
+
+        list.push({
+          name,
+          time: nextSpawn,
+          sortTime,
+          miss,
+          isFixed: false,
+          isSpawned,
+          isLocked,
+          lockRemainSec
+        });
       }
 
       const twOffset = 8 * 3600000;
@@ -641,20 +736,32 @@
           const ts = Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate(), slot.h, slot.m, 0) - twOffset;
           if (ts > now - GRACE_PERIOD_MS && ts <= now + 86400000) {
             const isSpawned = ts <= now;
-            slot.n.forEach(n => list.push({ name: n, time: ts, miss: 0, isFixed: true, isSpawned }));
+            slot.n.forEach(n => list.push({
+              name: n,
+              time: ts,
+              sortTime: ts,
+              miss: 0,
+              isFixed: true,
+              isSpawned,
+              isLocked: false,
+              lockRemainSec: 0
+            }));
           }
         }
       }
 
-      list.sort((a, b) => a.time - b.time);
+      list.sort((a, b) => a.sortTime - b.sortTime);
 
       const htmlContent = list.map(item => {
         const diff = item.time - now;
-        const isSpawned = diff <= 0;
-        const isSoon = !isSpawned && diff <= 10 * 60000;
+        const isSpawned = item.isSpawned;
+        const isLocked = item.isLocked;
+        const isSoon = !isSpawned && !isLocked && diff <= 10 * 60000;
 
         let timerDisplay = '';
-        if (isSpawned) {
+        if (isLocked) {
+          timerDisplay = `鎖定 ${String(item.lockRemainSec).padStart(2, '0')}s`;
+        } else if (isSpawned) {
           const elapsed = Math.abs(diff);
           const em = String(Math.floor(elapsed / 60000)).padStart(2, '0');
           const es = String(Math.floor((elapsed % 60000) / 1000)).padStart(2, '0');
@@ -670,27 +777,42 @@
         const timeStr = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
 
         let tagHtml = '';
-        if (isSpawned) {
+        if (isLocked) {
+          tagHtml += '<span class="killed-tag">✅ 已擊殺</span>';
+        } else if (isSpawned) {
           tagHtml += '<span class="spawned-tag">🔥 已出沒</span>';
         }
         if (item.isFixed) {
           tagHtml += '<span class="fixed-tag">固定時間</span>';
-        } else if (item.miss > 0) {
+        } else if (!isLocked && item.miss > 0) {
           tagHtml += `<span class="miss-tag">未登 ${item.miss} 次</span>`;
         }
 
         const isSubmitting = submittingBoss === item.name;
-        const actionBtnsHtml = (!item.isFixed && isSpawned) ? `
-          <div class="kill-actions">
-            <button class="btn-kill" data-boss="${item.name}" ${isSubmitting ? 'disabled' : ''}>${isSubmitting ? '寫入中...' : '⚔️ 已擊殺'}</button>
-            <button class="btn-custom" data-boss="${item.name}" ${isSubmitting ? 'disabled' : ''}>🕒 補登</button>
-          </div>
-        ` : '';
+        let actionBtnsHtml = '';
+        if (!item.isFixed && isLocked) {
+          actionBtnsHtml = `
+            <div class="kill-actions">
+              <button class="btn-kill btn-locked" disabled>✅ 已登記</button>
+              <button class="btn-custom btn-locked" disabled>🔒 鎖定中</button>
+            </div>
+          `;
+        } else if (!item.isFixed && isSpawned) {
+          actionBtnsHtml = `
+            <div class="kill-actions">
+              <button class="btn-kill" data-boss="${item.name}" ${isSubmitting ? 'disabled' : ''}>${isSubmitting ? '寫入中...' : '⚔️ 已擊殺'}</button>
+              <button class="btn-custom" data-boss="${item.name}" ${isSubmitting ? 'disabled' : ''}>🕒 補登</button>
+            </div>
+          `;
+        }
+
+        const subLabel = isLocked ? '下次重生' : (isSpawned ? '重生時間' : '預計重生');
 
         const cardClasses = [
           'card',
+          isLocked ? 'killed-lock' : '',
           isSpawned ? 'spawned' : '',
-          !isSpawned && item.isFixed ? 'fixed' : '',
+          !isSpawned && !isLocked && item.isFixed ? 'fixed' : '',
           isSoon ? 'soon' : ''
         ].filter(Boolean).join(' ');
 
@@ -698,10 +820,10 @@
           <div class="${cardClasses}">
             <div>
               <div class="name-row">
-                <span class="boss-name">${item.name}${!item.isFixed && item.miss > 0 ? `(${item.miss})` : ''}</span>
+                <span class="boss-name">${item.name}${!item.isFixed && !isLocked && item.miss > 0 ? `(${item.miss})` : ''}</span>
                 ${tagHtml}
               </div>
-              <div class="sub-info">${isSpawned ? '重生時間' : '預計重生'}：${timeStr}</div>
+              <div class="sub-info">${subLabel}：${timeStr}</div>
             </div>
             <div class="right-panel">
               <div class="countdown">${timerDisplay}</div>
