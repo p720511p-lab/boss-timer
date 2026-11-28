@@ -72,6 +72,25 @@
       border: 1px solid rgba(251, 146, 60, 0.45);
       box-shadow: 0 0 10px rgba(249, 115, 22, 0.25);
     }
+    .status-banner {
+      display: none;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: bold;
+      margin-bottom: 10px;
+      line-height: 1.4;
+    }
+    .status-ok {
+      background: rgba(16, 185, 129, 0.2);
+      border: 1px solid #10b981;
+      color: #6ee7b7;
+    }
+    .status-err {
+      background: rgba(220, 38, 38, 0.22);
+      border: 1px solid #ef4444;
+      color: #fca5a5;
+    }
     .card {
       background: linear-gradient(90deg, #0f1b2e 0%, #111827 100%);
       margin-bottom: 8px;
@@ -170,24 +189,28 @@
       background: rgba(16, 185, 129, 0.22);
       color: #34d399;
       border: 1px solid rgba(52, 211, 153, 0.5);
-      padding: 3px 8px;
+      padding: 4px 9px;
       border-radius: 6px;
-      font-size: 11px;
+      font-size: 12px;
       font-weight: bold;
       cursor: pointer;
       transition: all 0.15s;
     }
-    .btn-kill:hover {
+    .btn-kill:hover:not(:disabled) {
       background: rgba(16, 185, 129, 0.4);
       color: #ffffff;
+    }
+    .btn-kill:disabled {
+      opacity: 0.6;
+      cursor: wait;
     }
     .btn-custom {
       background: rgba(148, 163, 184, 0.18);
       color: #cbd5e1;
       border: 1px solid rgba(148, 163, 184, 0.4);
-      padding: 3px 7px;
+      padding: 4px 8px;
       border-radius: 6px;
-      font-size: 11px;
+      font-size: 12px;
       cursor: pointer;
       transition: all 0.15s;
     }
@@ -199,7 +222,7 @@
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.72);
+      background: rgba(0, 0, 0, 0.75);
       z-index: 999;
       justify-content: center;
       align-items: center;
@@ -209,13 +232,13 @@
       background: #0f172a;
       border: 1px solid #38bdf8;
       border-radius: 12px;
-      padding: 18px;
+      padding: 16px;
       width: 100%;
-      max-width: 300px;
+      max-width: 280px;
       box-shadow: 0 0 24px rgba(56, 189, 248, 0.3);
     }
     .modal-title {
-      font-size: 16px;
+      font-size: 15px;
       font-weight: bold;
       color: #38bdf8;
       margin-bottom: 10px;
@@ -228,7 +251,7 @@
       font-size: 18px;
       padding: 8px 12px;
       border-radius: 8px;
-      margin-bottom: 14px;
+      margin-bottom: 12px;
       text-align: center;
       letter-spacing: 2px;
     }
@@ -257,6 +280,7 @@
       <span id="modeBadge" class="badge badge-normal">連線中...</span>
     </div>
   </div>
+  <div id="statusBanner" class="status-banner"></div>
   <div id="board">同步資料中...</div>
 
   <div id="customModal" class="modal-backdrop">
@@ -272,7 +296,7 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-    import { getFirestore, doc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+    import { getFirestore, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyB-OH0xoozWSNy8z69KVrjNptBJYp7mOjU",
@@ -310,99 +334,160 @@
     let groupData = null;
     let pipWindow = null;
     let pendingCustomBoss = null;
+    let submittingBoss = null;
+    let isPointerDown = false;
+    let bannerTimer = null;
+
+    function showStatus(msg, isOk = true) {
+      if (bannerTimer) clearTimeout(bannerTimer);
+      const cls = isOk ? 'status-banner status-ok' : 'status-banner status-err';
+      const mainBanner = document.getElementById('statusBanner');
+      if (mainBanner) {
+        mainBanner.className = cls;
+        mainBanner.textContent = msg;
+        mainBanner.style.display = 'block';
+      }
+      if (pipWindow && !pipWindow.closed) {
+        const pipBanner = pipWindow.document.getElementById('pipStatusBanner');
+        if (pipBanner) {
+          pipBanner.className = cls;
+          pipBanner.textContent = msg;
+          pipBanner.style.display = 'block';
+        }
+      }
+      if (isOk) {
+        bannerTimer = setTimeout(() => {
+          if (mainBanner) mainBanner.style.display = 'none';
+          if (pipWindow && !pipWindow.closed) {
+            const pipBanner = pipWindow.document.getElementById('pipStatusBanner');
+            if (pipBanner) pipBanner.style.display = 'none';
+          }
+        }, 4500);
+      }
+    }
 
     async function recordBossKill(bossName, customTimeStr = null) {
-      if (!groupId || !groupData || !BOSS_INTERVALS[bossName]) return;
-      const now = Date.now();
-      const isHalf = Boolean(groupData.isHalfEvent);
-      let killTs = now;
+      if (!groupId || !groupData) return;
 
-      if (customTimeStr) {
+      if (customTimeStr !== null) {
         const clean = customTimeStr.replace(':', '').trim();
         if (!/^\d{4}$/.test(clean)) {
-          alert('時間格式錯誤，請輸入 4 位數字（例如 2115 或 21:15）。');
+          showStatus('⚠️ 時間格式錯誤，請輸入 4 位數字（例如 2115 或 21:15）。', false);
           return;
-        }
-        const hh = parseInt(clean.slice(0, 2), 10);
-        const mm = parseInt(clean.slice(2, 4), 10);
-        if (hh > 23 || mm > 59) {
-          alert('時間數值超出範圍，請重新確認。');
-          return;
-        }
-        const twOffset = 8 * 3600000;
-        const twNow = new Date(now + twOffset);
-        killTs = Date.UTC(twNow.getUTCFullYear(), twNow.getUTCMonth(), twNow.getUTCDate(), hh, mm, 0) - twOffset;
-        if (killTs > now + 10 * 60000) {
-          killTs -= 86400000;
         }
       }
 
-      const respawnMin = isHalf ? BOSS_INTERVALS[bossName][1] : BOSS_INTERVALS[bossName][0];
-      const nextSpawn = killTs + respawnMin * 60000;
+      submittingBoss = bossName;
+      render();
 
       try {
-        await updateDoc(doc(db, 'groups', groupId), {
-          [`bosses.${bossName}`]: {
-            lastKill: killTs,
-            nextSpawn: nextSpawn,
-            missCount: 0
-          }
+        const resp = await fetch('/api/webhook', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'webKill',
+            groupId,
+            bossName,
+            customTime: customTimeStr
+          })
         });
-      } catch (err) {
-        console.error('Update error:', err);
-        alert('登記失敗：請確認 Firebase Firestore 規則已允許寫入權限。\n錯誤細節：' + err.message);
-      }
-    }
 
-    function handleBoardClick(e, targetWin = window) {
-      const killBtn = e.target.closest('.btn-kill');
-      if (killBtn) {
-        const bossName = killBtn.dataset.boss;
-        recordBossKill(bossName);
-        return;
-      }
-
-      const customBtn = e.target.closest('.btn-custom');
-      if (customBtn) {
-        const bossName = customBtn.dataset.boss;
-        const twNow = new Date(Date.now() + 8 * 3600000);
-        const defaultStr = `${String(twNow.getUTCHours()).padStart(2, '0')}${String(twNow.getUTCMinutes()).padStart(2, '0')}`;
-
-        if (targetWin !== window) {
-          const input = targetWin.prompt(`補登【${bossName}】擊殺時間（4碼，如 2115）：`, defaultStr);
-          if (input !== null) recordBossKill(bossName, input);
-        } else {
-          pendingCustomBoss = bossName;
-          document.getElementById('modalTitle').textContent = `🕒 補登【${bossName}】擊殺時間`;
-          const inputEl = document.getElementById('modalTimeInput');
-          inputEl.value = defaultStr;
-          document.getElementById('customModal').style.display = 'flex';
-          inputEl.focus();
-          inputEl.select();
+        const result = await resp.json();
+        if (!resp.ok || !result.ok) {
+          throw new Error(result.error || `HTTP ${resp.status}`);
         }
+
+        if (groupData.bosses) {
+          groupData.bosses[result.bossName] = {
+            lastKill: result.killTs,
+            nextSpawn: result.nextSpawn,
+            missCount: 0
+          };
+        }
+
+        showStatus(`✅ 已寫入資料庫：【${result.bossName}】下次重生 ${result.nextSpawnStr}`, true);
+      } catch (err) {
+        console.error('WebKill error:', err);
+        showStatus(`⚠️ 【${bossName}】寫入失敗：${err.message}`, false);
+      } finally {
+        submittingBoss = null;
+        render();
       }
     }
 
-    document.getElementById('board').addEventListener('click', (e) => handleBoardClick(e, window));
+    function openCustomModal(bossName, targetWin) {
+      const twNow = new Date(Date.now() + 8 * 3600000);
+      const defaultStr = `${String(twNow.getUTCHours()).padStart(2, '0')}${String(twNow.getUTCMinutes()).padStart(2, '0')}`;
+      pendingCustomBoss = bossName;
 
-    document.getElementById('modalCancel').addEventListener('click', () => {
-      document.getElementById('customModal').style.display = 'none';
-      pendingCustomBoss = null;
-    });
-
-    document.getElementById('modalConfirm').addEventListener('click', () => {
-      const val = document.getElementById('modalTimeInput').value;
-      if (pendingCustomBoss) {
-        recordBossKill(pendingCustomBoss, val);
+      const docObj = targetWin.document;
+      const modal = docObj.getElementById('customModal');
+      const title = docObj.getElementById('modalTitle');
+      const inputEl = docObj.getElementById('modalTimeInput');
+      if (modal && title && inputEl) {
+        title.textContent = `🕒 補登【${bossName}】擊殺時間`;
+        inputEl.value = defaultStr;
+        modal.style.display = 'flex';
+        inputEl.focus();
+        inputEl.select();
       }
-      document.getElementById('customModal').style.display = 'none';
-      pendingCustomBoss = null;
-    });
+    }
 
-    document.getElementById('modalTimeInput').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') document.getElementById('modalConfirm').click();
-      if (e.key === 'Escape') document.getElementById('modalCancel').click();
-    });
+    function bindModalEvents(targetWin) {
+      const docObj = targetWin.document;
+      const cancelBtn = docObj.getElementById('modalCancel');
+      const confirmBtn = docObj.getElementById('modalConfirm');
+      const inputEl = docObj.getElementById('modalTimeInput');
+      const modal = docObj.getElementById('customModal');
+
+      if (!cancelBtn || !confirmBtn || !inputEl || !modal) return;
+
+      cancelBtn.addEventListener('click', () => {
+        modal.style.display = 'none';
+        pendingCustomBoss = null;
+      });
+
+      confirmBtn.addEventListener('click', () => {
+        const val = inputEl.value;
+        modal.style.display = 'none';
+        if (pendingCustomBoss) {
+          const targetBoss = pendingCustomBoss;
+          pendingCustomBoss = null;
+          recordBossKill(targetBoss, val);
+        }
+      });
+
+      inputEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') confirmBtn.click();
+        if (e.key === 'Escape') cancelBtn.click();
+      });
+    }
+
+    function bindBoardEvents(container, targetWin) {
+      container.addEventListener('pointerdown', () => { isPointerDown = true; });
+      container.addEventListener('pointerup', () => { isPointerDown = false; });
+      container.addEventListener('pointercancel', () => { isPointerDown = false; });
+
+      container.addEventListener('click', (e) => {
+        isPointerDown = false;
+        const killBtn = e.target.closest('.btn-kill');
+        if (killBtn) {
+          const bossName = killBtn.dataset.boss;
+          if (submittingBoss === bossName) return;
+          recordBossKill(bossName, null);
+          return;
+        }
+
+        const customBtn = e.target.closest('.btn-custom');
+        if (customBtn) {
+          const bossName = customBtn.dataset.boss;
+          openCustomModal(bossName, targetWin);
+        }
+      });
+    }
+
+    bindBoardEvents(document.getElementById('board'), window);
+    bindModalEvents(window);
 
     const pipBtn = document.getElementById('pipBtn');
     pipBtn.addEventListener('click', async () => {
@@ -418,8 +503,8 @@
 
       try {
         pipWindow = await window.documentPictureInPicture.requestWindow({
-          width: 350,
-          height: 480
+          width: 360,
+          height: 500
         });
 
         [...document.styleSheets].forEach((styleSheet) => {
@@ -437,10 +522,22 @@
             <span style="color:#38bdf8;font-weight:bold;font-size:14px;">⚡ BOSS 懸浮監控</span>
             <span id="pipMode" class="badge badge-normal" style="font-size:11px;padding:3px 8px;">載入中</span>
           </div>
+          <div id="pipStatusBanner" class="status-banner"></div>
           <div id="pipBoard"></div>
+          <div id="customModal" class="modal-backdrop">
+            <div class="modal-box">
+              <div id="modalTitle" class="modal-title">補登擊殺時間</div>
+              <input id="modalTimeInput" class="modal-input" type="text" maxlength="5" placeholder="例如 2115">
+              <div class="modal-btns">
+                <button id="modalCancel" class="btn-cancel">取消</button>
+                <button id="modalConfirm" class="btn-confirm">確認登記</button>
+              </div>
+            </div>
+          </div>
         `;
 
-        pipWindow.document.getElementById('pipBoard').addEventListener('click', (e) => handleBoardClick(e, pipWindow));
+        bindBoardEvents(pipWindow.document.getElementById('pipBoard'), pipWindow);
+        bindModalEvents(pipWindow);
 
         pipBtn.textContent = '📌 關閉懸浮';
         pipWindow.addEventListener('pagehide', () => {
@@ -467,7 +564,9 @@
       });
     }
 
-    setInterval(render, 1000);
+    setInterval(() => {
+      if (!isPointerDown) render();
+    }, 1000);
 
     function render() {
       if (!groupData) return;
@@ -544,11 +643,11 @@
           tagHtml += `<span class="miss-tag">未登 ${item.miss} 次</span>`;
         }
 
-        // 嚴格防呆：只有「已經出沒 (isSpawned)」的動態首領才顯示擊殺與補登按鈕
+        const isSubmitting = submittingBoss === item.name;
         const actionBtnsHtml = (!item.isFixed && isSpawned) ? `
           <div class="kill-actions">
-            <button class="btn-kill" data-boss="${item.name}" title="以現在時間登記擊殺">⚔️ 已擊殺</button>
-            <button class="btn-custom" data-boss="${item.name}" title="輸入指定擊殺時間">🕒 補登</button>
+            <button class="btn-kill" data-boss="${item.name}" ${isSubmitting ? 'disabled' : ''}>${isSubmitting ? '寫入中...' : '⚔️ 已擊殺'}</button>
+            <button class="btn-custom" data-boss="${item.name}" ${isSubmitting ? 'disabled' : ''}>🕒 補登</button>
           </div>
         ` : '';
 
