@@ -48,6 +48,8 @@ const BOSS_CONFIGS = [
   { name: '鱷魚', aliases: ['鱷魚', '惡', 'L'], offset: 370, normal: 480, half: 240 },
 ];
 
+const VALID_BOSS_NAMES = new Set(BOSS_CONFIGS.map((cfg) => cfg.name));
+
 // 固定時間王完整設定表 (0=週日, 1=週一, ..., 6=週六)
 const FIXED_SCHEDULE = {
   0: [
@@ -115,7 +117,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ ok: false, error: 'Invalid JSON' });
   }
 
-  // 網頁看板直接登記擊殺 / 補登（使用 Firebase Admin 最高權限寫入，不受前端規則限制）
+  // 網頁看板直接登記擊殺 / 補登
   if (body && body.action === 'webKill') {
     return handleWebKill(body, res);
   }
@@ -172,17 +174,28 @@ async function handleWebKill(body, res) {
       killTs = parseHHMMToTimestamp(clean, now);
     }
 
-    const isHalf = Boolean(docSnap.data().isHalfEvent);
+    const docData = docSnap.data();
+    const isHalf = Boolean(docData.isHalfEvent);
     const respawnMin = isHalf ? matchedCfg.half : matchedCfg.normal;
     const nextSpawn = killTs + respawnMin * 60 * 1000;
 
-    await docRef.update({
+    const updates = {
       [`bosses.${matchedCfg.name}`]: {
         lastKill: killTs,
         nextSpawn,
         missCount: 0,
       },
-    });
+    };
+
+    // 順手清理資料庫中殘留的舊版非標準鍵名（例如簡體「库約」）
+    const existingBosses = docData.bosses || {};
+    for (const key of Object.keys(existingBosses)) {
+      if (!VALID_BOSS_NAMES.has(key)) {
+        updates[`bosses.${key}`] = admin.firestore.FieldValue.delete();
+      }
+    }
+
+    await docRef.update(updates);
 
     return res.status(200).json({
       ok: true,
@@ -257,10 +270,19 @@ async function handleEvent(event, webUrl) {
   const isHalf = Boolean(data.isHalfEvent);
   const bosses = data.bosses || {};
 
+  // 清除任何舊版殘留的非標準鍵名（如簡體「库約」）
+  let hasDirtyKeys = false;
+  for (const key of Object.keys(bosses)) {
+    if (!VALID_BOSS_NAMES.has(key)) {
+      delete bosses[key];
+      hasDirtyKeys = true;
+    }
+  }
+
   // 3. 切換減半 / 正常模式
   if (text === '時間減半' || text === '重生減半') {
     await Promise.all([
-      docRef.update({ isHalfEvent: true }),
+      docRef.update({ isHalfEvent: true, bosses }),
       replyText(event.replyToken, '🔥 已切換為【時間減半模式】！\n之後登記擊殺與過期自動疊加將套用減半時間。'),
     ]);
     return null;
@@ -268,7 +290,7 @@ async function handleEvent(event, webUrl) {
 
   if (text === '正常重生') {
     await Promise.all([
-      docRef.update({ isHalfEvent: false }),
+      docRef.update({ isHalfEvent: false, bosses }),
       replyText(event.replyToken, '✅ 已切換回【正常重生模式】。'),
     ]);
     return null;
@@ -310,9 +332,9 @@ async function handleEvent(event, webUrl) {
     return null;
   }
 
-  // 非 Z 指令時，若有超過 10 分鐘寬限期的首領才執行更新
+  // 非 Z 指令時，若有超過 10 分鐘寬限期的首領或清理舊鍵名才執行更新
   const hasOverdueUpdate = syncOverdueBosses(bosses, isHalf, now);
-  if (hasOverdueUpdate) {
+  if (hasOverdueUpdate || hasDirtyKeys) {
     await docRef.update({ bosses });
   }
 
