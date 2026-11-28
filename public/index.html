@@ -36,13 +36,14 @@
     .header-actions {
       display: flex;
       align-items: center;
-      gap: 8px;
+      flex-wrap: wrap;
+      gap: 6px;
     }
     .pip-btn {
       background: rgba(56, 189, 248, 0.15);
       color: #38bdf8;
       border: 1px solid rgba(56, 189, 248, 0.45);
-      padding: 5px 12px;
+      padding: 5px 11px;
       border-radius: 20px;
       font-size: 12px;
       font-weight: bold;
@@ -53,8 +54,34 @@
       background: rgba(56, 189, 248, 0.3);
       box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
     }
+    .voice-btn {
+      padding: 5px 11px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .voice-off {
+      background: rgba(148, 163, 184, 0.14);
+      color: #94a3b8;
+      border: 1px solid rgba(148, 163, 184, 0.35);
+    }
+    .voice-off:hover {
+      background: rgba(148, 163, 184, 0.28);
+      color: #e2e8f0;
+    }
+    .voice-on {
+      background: rgba(168, 85, 247, 0.2);
+      color: #d8b4fe;
+      border: 1px solid rgba(192, 132, 252, 0.55);
+      box-shadow: 0 0 10px rgba(168, 85, 247, 0.25);
+    }
+    .voice-on:hover {
+      background: rgba(168, 85, 247, 0.35);
+    }
     .badge {
-      padding: 5px 12px;
+      padding: 5px 11px;
       border-radius: 20px;
       font-weight: bold;
       font-size: 12px;
@@ -307,6 +334,7 @@
   <div class="header">
     <h2>⚡ BOSS RADAR // 即時監控</h2>
     <div class="header-actions">
+      <button id="voiceBtn" class="voice-btn voice-off" title="開啟或關閉重生前 3 分鐘語音提醒">🔇 語音提醒：關</button>
       <button id="pipBtn" class="pip-btn" title="開啟永遠置頂迷你小視窗">📌 懸浮置頂</button>
       <span id="modeBadge" class="badge badge-normal">連線中...</span>
     </div>
@@ -341,7 +369,7 @@
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
-    // 官方 25 隻動態首領重生週期表 [正常分鐘, 減半分鐘]（嚴格過濾非名單內的舊資料）
+    // 官方 25 隻動態首領重生週期表 [正常分鐘, 減半分鐘]
     const BOSS_INTERVALS = {
       '野豬': [240, 120], '夫人': [240, 120], '飛龍3': [240, 120], '飛龍4': [240, 120],
       '卡王': [240, 120], '大腳': [240, 120], '黑虎': [240, 120], '海賊': [240, 120],
@@ -399,6 +427,7 @@
     };
 
     const KILL_LOCK_MS = 10 * 1000;
+    const VOICE_ALERT_MS = 3 * 60 * 1000;
     const groupId = new URLSearchParams(window.location.search).get('group');
     let groupData = null;
     let pipWindow = null;
@@ -407,11 +436,94 @@
     let isPointerDown = false;
     let bannerTimer = null;
 
-    // 追蹤最新擊殺紀錄與 10 秒原地灰階鎖定狀態（全體同步防遞補誤觸）
+    // 追蹤最新擊殺紀錄與 10 秒原地灰階鎖定狀態
     let knownLastKill = {};
     let recentKillMap = {};
     let lastSpawnTimeMap = {};
     let isFirstSnapshot = true;
+
+    // 語音提醒狀態與已播報紀錄（避免重複播報）
+    let voiceEnabled = localStorage.getItem('bossVoiceEnabled') === '1';
+    const announcedVoiceKeys = new Set();
+
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.getVoices();
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.getVoices();
+      };
+    }
+
+    function speakText(text) {
+      if (!('speechSynthesis' in window)) return;
+      try {
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.lang = 'zh-TW';
+        utter.rate = 1.05;
+        utter.pitch = 1.0;
+        const voices = window.speechSynthesis.getVoices();
+        const twVoice =
+          voices.find((v) => v.lang === 'zh-TW' || v.lang.includes('zh-Hant')) ||
+          voices.find((v) => v.lang.startsWith('zh'));
+        if (twVoice) utter.voice = twVoice;
+        window.speechSynthesis.speak(utter);
+      } catch (err) {
+        console.error('SpeechSynthesis error:', err);
+      }
+    }
+
+    function updateVoiceButtons() {
+      const mainBtn = document.getElementById('voiceBtn');
+      if (mainBtn) {
+        mainBtn.className = voiceEnabled ? 'voice-btn voice-on' : 'voice-btn voice-off';
+        mainBtn.textContent = voiceEnabled ? '🔊 語音提醒：開' : '🔇 語音提醒：關';
+      }
+      if (pipWindow && !pipWindow.closed) {
+        const pipVoiceBtn = pipWindow.document.getElementById('pipVoiceBtn');
+        if (pipVoiceBtn) {
+          pipVoiceBtn.className = voiceEnabled ? 'voice-btn voice-on' : 'voice-btn voice-off';
+          pipVoiceBtn.textContent = voiceEnabled ? '🔊 語音開' : '🔇 語音關';
+        }
+      }
+    }
+
+    function toggleVoice() {
+      if (!('speechSynthesis' in window)) {
+        alert('您目前的瀏覽器不支援語音播報功能，建議使用電腦版 Chrome 或 Edge 開啟。');
+        return;
+      }
+      voiceEnabled = !voiceEnabled;
+      localStorage.setItem('bossVoiceEnabled', voiceEnabled ? '1' : '0');
+      updateVoiceButtons();
+
+      if (voiceEnabled) {
+        window.speechSynthesis.cancel();
+        speakText('三分鐘前語音提醒已開啟');
+        showStatus('🔊 已開啟首領重生前 3 分鐘語音提醒', true);
+        render();
+      } else {
+        window.speechSynthesis.cancel();
+        showStatus('🔇 已關閉語音提醒', true);
+      }
+    }
+
+    // 若使用者先前已開啟過語音提醒，在重新整理後的首次點擊自動解鎖瀏覽器音效限制
+    document.addEventListener(
+      'pointerdown',
+      () => {
+        if (voiceEnabled && 'speechSynthesis' in window) {
+          const silent = new SpeechSynthesisUtterance('');
+          silent.volume = 0;
+          window.speechSynthesis.speak(silent);
+        }
+      },
+      { once: true }
+    );
+
+    const voiceBtn = document.getElementById('voiceBtn');
+    if (voiceBtn) {
+      voiceBtn.addEventListener('click', toggleVoice);
+    }
+    updateVoiceButtons();
 
     function showStatus(msg, isOk = true) {
       if (bannerTimer) clearTimeout(bannerTimer);
@@ -601,9 +713,12 @@
 
         pipWindow.document.body.style.padding = '10px';
         pipWindow.document.body.innerHTML = `
-          <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #1e293b;padding-bottom:8px;margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #1e293b;padding-bottom:8px;margin-bottom:10px;gap:6px;">
             <span style="color:#38bdf8;font-weight:bold;font-size:14px;">⚡ BOSS 懸浮監控</span>
-            <span id="pipMode" class="badge badge-normal" style="font-size:11px;padding:3px 8px;">載入中</span>
+            <div style="display:flex;align-items:center;gap:5px;">
+              <button id="pipVoiceBtn" class="voice-btn ${voiceEnabled ? 'voice-on' : 'voice-off'}" style="font-size:11px;padding:3px 8px;">${voiceEnabled ? '🔊 語音開' : '🔇 語音關'}</button>
+              <span id="pipMode" class="badge badge-normal" style="font-size:11px;padding:3px 8px;">載入中</span>
+            </div>
           </div>
           <div id="pipStatusBanner" class="status-banner"></div>
           <div id="pipBoard"></div>
@@ -618,6 +733,11 @@
             </div>
           </div>
         `;
+
+        const pipVoiceBtn = pipWindow.document.getElementById('pipVoiceBtn');
+        if (pipVoiceBtn) {
+          pipVoiceBtn.addEventListener('click', toggleVoice);
+        }
 
         bindBoardEvents(pipWindow.document.getElementById('pipBoard'), pipWindow);
         bindModalEvents(pipWindow);
@@ -690,7 +810,6 @@
       const bosses = groupData.bosses || {};
 
       for (const [name, info] of Object.entries(bosses)) {
-        // 僅處理並顯示官方 25 隻名單內的首領，徹底忽略資料庫舊版簡體鍵名（如「库約」）
         if (!info || !info.nextSpawn || !BOSS_INTERVALS[name]) continue;
         let nextSpawn = info.nextSpawn;
         let miss = info.missCount || 0;
@@ -753,6 +872,25 @@
       }
 
       list.sort((a, b) => a.sortTime - b.sortTime);
+
+      // 檢查是否有首領進入重生前 3 分鐘，並進行語音提醒（同秒出沒自動合併成一句）
+      if (voiceEnabled) {
+        const newlyAlertingNames = [];
+        for (const item of list) {
+          const diff = item.time - now;
+          if (!item.isLocked && diff > 0 && diff <= VOICE_ALERT_MS) {
+            const alertKey = `${item.name}_${item.time}`;
+            if (!announcedVoiceKeys.has(alertKey)) {
+              announcedVoiceKeys.add(alertKey);
+              const spokenName = item.name.replace(/\(.*?\)/g, '').trim();
+              newlyAlertingNames.push(spokenName);
+            }
+          }
+        }
+        if (newlyAlertingNames.length > 0) {
+          speakText(`注意，三分鐘後，${newlyAlertingNames.join('、')}，即將重生`);
+        }
+      }
 
       const htmlContent = list.map(item => {
         const diff = item.time - now;
