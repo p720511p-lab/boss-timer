@@ -341,12 +341,13 @@
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
+    // 官方 25 隻動態首領重生週期表 [正常分鐘, 減半分鐘]（嚴格過濾非名單內的舊資料）
     const BOSS_INTERVALS = {
       '野豬': [240, 120], '夫人': [240, 120], '飛龍3': [240, 120], '飛龍4': [240, 120],
       '卡王': [240, 120], '大腳': [240, 120], '黑虎': [240, 120], '海賊': [240, 120],
       '茉莉': [240, 120], '奧杜亞': [240, 120], '飛龍1': [240, 120], '飛龍2': [240, 120],
       '殺戮者': [240, 120], '麥肯': [240, 120], '蜥蜴': [240, 120], '巨人': [720, 360],
-      '奈克': [480, 240], '烏勒': [480, 240], '庫約': [240, 120], '库約': [240, 120],
+      '奈克': [480, 240], '烏勒': [480, 240], '庫約': [240, 120],
       '蛇女': [480, 240], '狼王': [480, 240], '四色': [720, 720], '頭目': [480, 240],
       '克洛林': [480, 480], '鱷魚': [480, 240]
     };
@@ -643,6 +644,7 @@
           const now = Date.now();
 
           for (const [name, info] of Object.entries(newBosses)) {
+            if (!BOSS_INTERVALS[name]) continue;
             const prevKill = knownLastKill[name];
             const currKill = info.lastKill || null;
 
@@ -653,7 +655,6 @@
               }
             } else if (currKill && currKill !== prevKill) {
               knownLastKill[name] = currKill;
-              // 只要為 60 秒內發生的即時擊殺（包含他人按網頁或 LINE 輸入 Z），即啟動 10 秒原地灰階鎖定
               if (Math.abs(now - currKill) < 60000) {
                 recentKillMap[name] = now;
               }
@@ -689,7 +690,8 @@
       const bosses = groupData.bosses || {};
 
       for (const [name, info] of Object.entries(bosses)) {
-        if (!info.nextSpawn) continue;
+        // 僅處理並顯示官方 25 隻名單內的首領，徹底忽略資料庫舊版簡體鍵名（如「库約」）
+        if (!info || !info.nextSpawn || !BOSS_INTERVALS[name]) continue;
         let nextSpawn = info.nextSpawn;
         let miss = info.missCount || 0;
 
@@ -701,7 +703,7 @@
           delete recentKillMap[name];
         }
 
-        if (!isLocked && nextSpawn <= now - GRACE_PERIOD_MS && BOSS_INTERVALS[name]) {
+        if (!isLocked && nextSpawn <= now - GRACE_PERIOD_MS) {
           const intervalMs = (isHalf ? BOSS_INTERVALS[name][1] : BOSS_INTERVALS[name][0]) * 60000;
           const missed = Math.floor((now - GRACE_PERIOD_MS - nextSpawn) / intervalMs) + 1;
           nextSpawn += missed * intervalMs;
